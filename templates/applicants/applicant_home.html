@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Applicant Portal | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <!-- Breadcrumb Navigation -->
+        <nav aria-label="breadcrumb" class="mb-4">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+                <li class="breadcrumb-item active" aria-current="page">Applicant Portal</li>
+            </ol>
+        </nav>
+
+        <!-- Main Portal Header Card -->
+        <div class="card shadow-sm border-0 mb-4">
+            <div class="card-body p-4 p-md-5">
+                <div class="d-flex align-items-center mb-3">
+                    <div class="bg-danger text-white rounded-circle p-3 d-inline-flex me-3">
+                        <i class="bi bi-file-earmark-text fs-3"></i>
+                    </div>
+                    <div>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-1 mb-1">
+                            Applicant Module
+                        </span>
+                        <h1 class="h2 fw-bold text-dark mb-0">Applicant Portal</h1>
+                    </div>
+                </div>
+
+                <p class="lead text-muted mb-4">
+                    Welcome to the Fire Department Applicant Portal. Here, building owners and authorized representatives can apply for a Fire No Objection Certificate (NOC) and track the real-time status of their applications throughout the inspection and approval lifecycle.
+                </p>
+
+                <!-- Action Button Placeholders -->
+                <div class="d-flex flex-wrap gap-3 mb-4">
+                    <button type="button" class="btn btn-danger btn-lg px-4" disabled>
+                        <i class="bi bi-file-earmark-plus me-2"></i>New Application
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-lg px-4" disabled>
+                        <i class="bi bi-folder2-open me-2"></i>My Applications
+                    </button>
+                </div>
+
+                <div class="alert alert-light border small text-muted mb-0">
+                    <i class="bi bi-info-circle text-primary me-2"></i>
+                    <strong>Note:</strong> The "New Application" and "My Applications" actions are UI placeholders. Complete application filing, document uploads, and tracking features will be implemented in upcoming commits.
+                </div>
+            </div>
+        </div>
+
+        <!-- Planned Features / Applicant Services Cards -->
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="card h-100 border-0 shadow-sm">
+                    <div class="card-body p-4">
+                        <div class="text-primary fs-3 mb-2">
+                            <i class="bi bi-pencil-square"></i>
+                        </div>
+                        <h5 class="fw-bold">1. Apply for Fire NOC</h5>
+                        <p class="text-muted small mb-0">
+                            Fill out building specifications, occupant capacity, and submit required architectural and fire safety diagrams.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card h-100 border-0 shadow-sm">
+                    <div class="card-body p-4">
+                        <div class="text-warning fs-3 mb-2">
+                            <i class="bi bi-hourglass-split"></i>
+                        </div>
+                        <h5 class="fw-bold">2. Track Progress</h5>
+                        <p class="text-muted small mb-0">
+                            Monitor desk verification, inspection scheduling, officer observations, and safety clearance milestones.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card h-100 border-0 shadow-sm">
+                    <div class="card-body p-4">
+                        <div class="text-success fs-3 mb-2">
+                            <i class="bi bi-award"></i>
+                        </div>
+                        <h5 class="fw-bold">3. Receive Certificate</h5>
+                        <p class="text-muted small mb-0">
+                            Download digitally authorized Fire NOC certificates with unique verification identifiers upon successful inspection.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}
+

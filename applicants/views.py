@@ -3,7 +3,7 @@ from django.shortcuts import render
 
 def applicant_home(request):
     """
-    Initial placeholder view for the Applicant Module.
-    Full functionality will be added in subsequent commits.
+    Applicant home/dashboard placeholder view.
+    Renders the Applicant Portal landing page with placeholder actions.
     """
-    return render(request, 'applicants/home.html')
+    return render(request, 'applicants/applicant_home.html')

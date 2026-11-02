@@ -85,7 +85,7 @@ FireNOC-Management-System/
 │   ├── base.html           # Common Bootstrap master layout
 │   ├── home.html           # Landing page extending base.html
 │   └── applicants/
-│       └── home.html       # Applicant placeholder page
+│       └── applicant_home.html # Applicant portal landing page
 ├── static/                 # Static assets (CSS, JS, images)
 │   ├── css/
 │   │   └── style.css       # Project stylesheet
