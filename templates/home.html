@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Home | FireNOC Management System{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<div class="hero-section mb-5 shadow">
+    <div class="row align-items-center">
+        <div class="col-lg-8">
+            <span class="badge bg-danger mb-3 px-3 py-2 text-uppercase fw-semibold tracking-wide">
+                <i class="bi bi-shield-shaded me-1"></i> Public Safety & Compliance
+            </span>
+            <h1 class="display-5 fw-bold mb-3">Fire Department Inspection & NOC Management</h1>
+            <p class="lead mb-4 text-light opacity-75">
+                A streamlined web platform for building owners to apply for Fire No Objection Certificates (NOC), fire officers to schedule and execute digital inspections, and administrators to review compliance and issue authorized certificates.
+            </p>
+            <div class="d-flex flex-wrap gap-2">
+                <a href="{% url 'applicants:applicant_home' %}" class="btn btn-danger btn-lg px-4">
+                    <i class="bi bi-box-arrow-in-right me-2"></i>Go to Applicant Portal
+                </a>
+                <a href="#modules" class="btn btn-outline-light btn-lg px-4">
+                    <i class="bi bi-grid-3x3-gap me-2"></i>View Modules
+                </a>
+            </div>
+        </div>
+        <div class="col-lg-4 text-center mt-4 mt-lg-0">
+            <div class="display-1 text-warning">
+                <i class="bi bi-fire"></i>
+            </div>
+            <p class="text-white-50 mt-2 mb-0">Common Project Foundation Active</p>
+        </div>
+    </div>
+</div>
+
+<!-- Team & Planned Modules Section -->
+<div id="modules" class="mb-5">
+    <div class="text-center mb-4">
+        <h2 class="fw-bold">Project Modules & Team Allocation</h2>
+        <p class="text-muted">Common project architecture ready for collaborative feature development.</p>
+    </div>
+
+    <div class="row g-4">
+        <!-- Applicant Module -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-0 card-module">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle badge-role">
+                            <i class="bi bi-person me-1"></i>Ankan
+                        </span>
+                        <span class="badge bg-success">Foundation Initialized</span>
+                    </div>
+                    <div class="display-6 text-primary mb-3">
+                        <i class="bi bi-file-earmark-text"></i>
+                    </div>
+                    <h5 class="card-title fw-bold">Applicant Module</h5>
+                    <p class="card-text text-muted flex-grow-1">
+                        Handles registration, building profile submissions, NOC application filings, document uploads, fee payments, and real-time application status tracking.
+                    </p>
+                    <div class="mt-3">
+                        <a href="{% url 'applicants:applicant_home' %}" class="btn btn-primary w-100">
+                            Open Applicant Portal <i class="bi bi-arrow-right ms-1"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fire Officer Module -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-0 card-module">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle badge-role">
+                            <i class="bi bi-shield-check me-1"></i>Aditya
+                        </span>
+                        <span class="badge bg-secondary">Coming Soon</span>
+                    </div>
+                    <div class="display-6 text-warning mb-3">
+                        <i class="bi bi-clipboard2-check"></i>
+                    </div>
+                    <h5 class="card-title fw-bold">Officer / Inspection Module</h5>
+                    <p class="card-text text-muted flex-grow-1">
+                        Assigned fire officers view verification queues, schedule onsite building inspections, record safety checklist observations, log deficiencies, and submit reports.
+                    </p>
+                    <div class="mt-3">
+                        <button class="btn btn-outline-secondary w-100" disabled>
+                            Module In Development
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Admin & Database Module -->
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-0 card-module">
+                <div class="card-body p-4 d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle badge-role">
+                            <i class="bi bi-gear me-1"></i>Harsh
+                        </span>
+                        <span class="badge bg-secondary">Coming Soon</span>
+                    </div>
+                    <div class="display-6 text-danger mb-3">
+                        <i class="bi bi-award"></i>
+                    </div>
+                    <h5 class="card-title fw-bold">Admin + Database + NOC Module</h5>
+                    <p class="card-text text-muted flex-grow-1">
+                        Departmental administration, user management, database schema oversight, NOC certificate generation with unique verification identifiers, and overall system audits.
+                    </p>
+                    <div class="mt-3">
+                        <button class="btn btn-outline-secondary w-100" disabled>
+                            Module In Development
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Workflow Overview -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-4">
+        <h4 class="fw-bold mb-3"><i class="bi bi-diagram-3 text-danger me-2"></i>Standard Fire NOC Lifecycle</h4>
+        <div class="row text-center g-3 pt-2">
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded">
+                    <div class="h5 fw-bold text-dark mb-1">1. Submission</div>
+                    <small class="text-muted">Applicant submits building details and safety docs</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded">
+                    <div class="h5 fw-bold text-dark mb-1">2. Verification</div>
+                    <small class="text-muted">Document scrutiny by the fire department desk</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded">
+                    <div class="h5 fw-bold text-dark mb-1">3. Field Inspection</div>
+                    <small class="text-muted">Physical site check and safety equipment audit</small>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded">
+                    <div class="h5 fw-bold text-dark mb-1">4. NOC Issuance</div>
+                    <small class="text-muted">Digital certificate granted upon compliance</small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
