@@ -2,9 +2,9 @@
 Django settings for FireNOC-Management-System (config project).
 
 Common project foundation configured for team collaboration:
-- Ankan: Applicant Module
-- Aditya: Fire Officer / Inspection Module
-- Harsh: Admin + Database + NOC Module
+- Applicant Module
+- Fire Officer / Inspection Module
+- Admin + Database + NOC Module
 """
 
 import os

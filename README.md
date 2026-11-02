@@ -25,13 +25,13 @@ The **FireNOC Management System** digitizes the lifecycle of fire safety complia
 
 ---
 
-## 👥 Team Members & Responsibilities
+## 👥 Project Modules & Roles
 
-| Member | Module / Role | Primary Responsibilities |
-|---|---|---|
-| **Ankan** | **Applicant Module** | Building profile registration, NOC application submission, fire safety document uploads, and application tracking status. |
-| **Aditya** | **Fire Officer / Inspection Module** | Officer dashboard, physical site inspection scheduling, safety checklist audits, deficiency recording, and report submission. |
-| **Harsh** | **Admin + Database + NOC Module** | System administration, database schema design & migrations, NOC approval workflow, digital certificate generation, and audit logging. |
+| Module / Role | Primary Responsibilities |
+|---|---|
+| **Applicant Module** | Building profile registration, NOC application submission, fire safety document uploads, and application tracking status. |
+| **Fire Officer / Inspection Module** | Officer dashboard, physical site inspection scheduling, safety checklist audits, deficiency recording, and report submission. |
+| **Admin + Database + NOC Module** | System administration, database schema design & migrations, NOC approval workflow, digital certificate generation, and audit logging. |
 
 ---
 
@@ -77,7 +77,7 @@ FireNOC-Management-System/
 │   ├── __init__.py
 │   ├── admin.py
 │   ├── apps.py
-│   ├── models.py           # (To be implemented by Ankan)
+│   ├── models.py           # (To be implemented)
 │   ├── tests.py
 │   ├── urls.py             # Routes for /applicant/
 │   └── views.py            # Placeholder view: "Applicant Module Coming Soon"
