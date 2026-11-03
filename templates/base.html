@@ -16,42 +16,76 @@
 </head>
 <body class="d-flex flex-column min-vh-100">
 
-    <!-- Navigation Bar -->
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm">
+    <!-- Official Government Service Top Bar -->
+    <div class="gov-topbar py-1 d-none d-md-block">
+        <div class="container d-flex justify-content-between align-items-center">
+            <div class="small text-white-50">
+                <i class="bi bi-shield-check text-warning me-1"></i>Official Portal &bull; Department of Fire &amp; Emergency Services
+            </div>
+            <div class="small text-white-50 d-flex gap-3">
+                <span><i class="bi bi-telephone-fill text-danger me-1"></i>Emergency: <strong class="text-white">101</strong></span>
+                <span><i class="bi bi-headset me-1"></i>Toll-Free Helpline: <strong class="text-white">1800-11-FIRE</strong></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Responsive Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark portal-navbar sticky-top shadow-sm">
         <div class="container">
-            <a class="navbar-brand text-danger fw-bold" href="{% url 'home' %}">
-                <i class="bi bi-fire text-warning me-2"></i>FireNOC Management
+            <!-- FireNOC Logo / Text Branding -->
+            <a class="navbar-brand d-flex align-items-center" href="{% url 'home' %}">
+                <span class="me-2">
+                    <i class="bi bi-fire text-danger fs-3"></i>
+                </span>
+                <span class="d-flex flex-column">
+                    <span class="brand-title fw-bold text-white lh-1">FireNOC</span>
+                    <span class="brand-subtitle text-white-50 text-uppercase">Management System</span>
+                </span>
             </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+
+            <!-- Mobile Collapsible Menu Toggler -->
+            <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#portalNavbar" aria-controls="portalNavbar" aria-expanded="false" aria-label="Toggle navigation">
                 <span class="navbar-toggler-icon"></span>
             </button>
-            <div class="collapse navbar-collapse" id="navbarContent">
-                <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+
+            <!-- Navigation Links -->
+            <div class="collapse navbar-collapse" id="portalNavbar">
+                <ul class="navbar-nav me-auto mb-2 mb-lg-0 ms-lg-3">
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'home' %}">
+                        <a class="nav-link {% if request.resolver_match.url_name == 'home' and request.path == '/' %}active{% endif %}" {% if request.resolver_match.url_name == 'home' and request.path == '/' %}aria-current="page"{% endif %} href="{% url 'home' %}">
                             <i class="bi bi-house-door me-1"></i>Home
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="{% url 'applicants:applicant_home' %}">
-                            <i class="bi bi-person-badge me-1"></i>Applicant Portal
+                        <a class="nav-link" href="{% url 'home' %}#about">
+                            About
                         </a>
                     </li>
                     <li class="nav-item">
-                        <span class="nav-link text-secondary" title="Coming Soon">
-                            <i class="bi bi-shield-check me-1"></i>Officer Portal <span class="badge bg-secondary">Soon</span>
-                        </span>
+                        <a class="nav-link" href="{% url 'home' %}#how-it-works">
+                            How It Works
+                        </a>
                     </li>
                     <li class="nav-item">
-                        <span class="nav-link text-secondary" title="Coming Soon">
-                            <i class="bi bi-gear-wide-connected me-1"></i>Admin / NOC <span class="badge bg-secondary">Soon</span>
-                        </span>
+                        <a class="nav-link" href="#contact">
+                            Contact
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'applicant' in request.path %}active{% endif %}" {% if 'applicant' in request.path %}aria-current="page"{% endif %} href="{% url 'applicants:applicant_home' %}">
+                            <i class="bi bi-person-badge me-1"></i>Applicant Portal
+                        </a>
                     </li>
                 </ul>
-                <div class="d-flex align-items-center">
-                    <span class="badge bg-outline-light text-light border border-secondary px-3 py-2">
-                        <i class="bi bi-people me-1"></i>Team Project Foundation
-                    </span>
+
+                <!-- Authentication Actions (Login & Register Placeholders) -->
+                <div class="d-flex align-items-center gap-2 mt-3 mt-lg-0">
+                    <a href="#login" class="btn btn-outline-light btn-sm px-3 auth-btn" data-bs-toggle="tooltip" title="Login placeholder (Coming in future commit)">
+                        <i class="bi bi-box-arrow-in-right me-1"></i>Login
+                    </a>
+                    <a href="#register" class="btn btn-danger btn-sm px-3 auth-btn" data-bs-toggle="tooltip" title="Registration placeholder (Coming in future commit)">
+                        <i class="bi bi-person-plus me-1"></i>Register
+                    </a>
                 </div>
             </div>
         </div>
@@ -80,21 +114,89 @@
         </div>
     </main>
 
-    <!-- Footer -->
-    <footer class="footer mt-auto py-4 bg-dark text-white-50 border-top border-secondary">
-        <div class="container">
-            <div class="row align-items-center">
-                <div class="col-md-6 text-center text-md-start mb-2 mb-md-0">
-                    <div class="fw-bold text-white mb-1">
-                        <i class="bi bi-fire text-danger me-1"></i>FireNOC-Management-System
+    <!-- Professional Government Service Footer -->
+    <footer class="portal-footer mt-auto" id="contact">
+        <div class="footer-top py-5">
+            <div class="container">
+                <div class="row g-4">
+                    <!-- Column 1: FireNOC System & Description -->
+                    <div class="col-lg-5 col-md-6">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-fire text-danger fs-3 me-2"></i>
+                            <span class="fs-5 fw-bold text-white">FireNOC Management System</span>
+                        </div>
+                        <p class="text-white-50 mb-3 small pe-lg-4">
+                            The centralized web portal for Fire Department Inspection and No Objection Certificate (NOC) Management. Designed to digitize fire safety clearance workflows, inspection auditing, and certificate issuance for commercial, residential, and institutional buildings.
+                        </p>
+                        <div class="d-flex flex-wrap gap-2">
+                            <span class="badge bg-navy-light text-light border border-secondary-subtle px-2 py-1 small">
+                                <i class="bi bi-shield-check text-warning me-1"></i>Official Public Safety Portal
+                            </span>
+                        </div>
                     </div>
-                    <small>Fire Department Inspection & No Objection Certificate (NOC) Management Web Application</small>
+
+                    <!-- Column 2: Quick Links -->
+                    <div class="col-lg-3 col-md-6">
+                        <h6 class="footer-heading text-white text-uppercase fw-bold mb-3">
+                            Quick Links
+                        </h6>
+                        <ul class="list-unstyled footer-links small mb-0">
+                            <li class="mb-2">
+                                <a href="{% url 'home' %}"><i class="bi bi-chevron-right me-1 text-danger"></i>Home</a>
+                            </li>
+                            <li class="mb-2">
+                                <a href="{% url 'home' %}#about"><i class="bi bi-chevron-right me-1 text-danger"></i>About FireNOC</a>
+                            </li>
+                            <li class="mb-2">
+                                <a href="{% url 'home' %}#how-it-works"><i class="bi bi-chevron-right me-1 text-danger"></i>How It Works</a>
+                            </li>
+                            <li class="mb-2">
+                                <a href="{% url 'applicants:applicant_home' %}"><i class="bi bi-chevron-right me-1 text-danger"></i>Applicant Portal</a>
+                            </li>
+                            <li class="mb-2">
+                                <a href="#login"><i class="bi bi-chevron-right me-1 text-danger"></i>Officer / Admin Portal</a>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Column 3: Contact Information Placeholder -->
+                    <div class="col-lg-4 col-md-12">
+                        <h6 class="footer-heading text-white text-uppercase fw-bold mb-3">
+                            Contact Information
+                        </h6>
+                        <ul class="list-unstyled footer-contact small text-white-50 mb-0">
+                            <li class="mb-2 d-flex">
+                                <i class="bi bi-geo-alt-fill text-danger me-2 mt-1 flex-shrink-0"></i>
+                                <span>Fire &amp; Emergency Services Headquarters, Fire Safety Bhavan, Central City</span>
+                            </li>
+                            <li class="mb-2 d-flex align-items-center">
+                                <i class="bi bi-telephone-fill text-danger me-2 flex-shrink-0"></i>
+                                <span>Helpline: 1800-11-FIRE (Toll-Free) &bull; Emergency: 101</span>
+                            </li>
+                            <li class="mb-2 d-flex align-items-center">
+                                <i class="bi bi-envelope-fill text-danger me-2 flex-shrink-0"></i>
+                                <span>Email: support-firenoc@gov.in (Placeholder)</span>
+                            </li>
+                            <li class="d-flex align-items-center">
+                                <i class="bi bi-clock-fill text-danger me-2 flex-shrink-0"></i>
+                                <span>Office Hours: Monday &ndash; Friday, 9:30 AM &ndash; 5:30 PM</span>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
-                <div class="col-md-6 text-center text-md-end">
-                    <small class="d-block mb-1">
-                        <strong>Modules:</strong> Applicant Portal &bull; Officer Portal &bull; Admin / NOC
-                    </small>
-                    <small>&copy; 2026 FireNOC Management System. Built with Django & Bootstrap.</small>
+            </div>
+        </div>
+
+        <!-- Copyright Bar -->
+        <div class="footer-bottom py-3">
+            <div class="container">
+                <div class="row align-items-center text-center text-md-start">
+                    <div class="col-md-7 text-white-50 small mb-2 mb-md-0">
+                        &copy; 2026 <strong>FireNOC Management System</strong>. All rights reserved. Government Fire Safety &amp; NOC Portal.
+                    </div>
+                    <div class="col-md-5 text-md-end text-white-50 small">
+                        <span>Modules: Applicant Portal &bull; Officer Inspection &bull; Admin &amp; NOC</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -107,4 +209,3 @@
     {% block extra_js %}{% endblock %}
 </body>
 </html>
-

@@ -1,37 +1,150 @@
-/* FireNOC Management System - Custom Global Styles */
+/* ==========================================================================
+   FireNOC Management System - Global Stylesheet
+   Theme: Professional Government Service Portal
+   Colors: Navy Blue & White (Primary), Fire Red (Subtle Accents)
+   ========================================================================== */
 
 :root {
-    --primary-color: #d32f2f;
-    --primary-hover: #b71c1c;
-    --secondary-color: #ff9800;
+    /* Primary Government Navy Palette */
+    --gov-navy-darker: #040e1b;
+    --gov-navy-dark: #07172b;
+    --gov-navy-primary: #0b2545;
+    --gov-navy-surface: #102e54;
+    --gov-navy-light: #183e6d;
+
+    /* Subtle Fire Red Accents */
+    --accent-red: #dc2626;
+    --accent-red-hover: #b91c1c;
+    --accent-red-subtle: rgba(220, 38, 38, 0.12);
+
+    /* Neutral Typography & Backgrounds */
+    --body-bg: #f8fafc;
+    --card-bg: #ffffff;
+    --text-primary: #0f172a;
+    --text-muted: #64748b;
+    --text-light: #f1f5f9;
+    --text-light-muted: #94a3b8;
+    --border-subtle: #e2e8f0;
+}
+
+html {
+    scroll-behavior: smooth;
 }
 
 body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    background-color: #f8f9fa;
+    background-color: var(--body-bg);
+    color: var(--text-primary);
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.5;
 }
 
 main {
     flex: 1 0 auto;
 }
 
-footer {
-    flex-shrink: 0;
+/* ==========================================================================
+   Official Topbar
+   ========================================================================== */
+
+.gov-topbar {
+    background-color: var(--gov-navy-darker);
+    font-size: 0.8125rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.navbar-brand {
-    font-weight: 700;
+/* ==========================================================================
+   Navigation Bar (Government Portal Style)
+   ========================================================================== */
+
+.portal-navbar {
+    background-color: var(--gov-navy-primary);
+    border-bottom: 2px solid var(--gov-navy-dark);
+}
+
+.portal-navbar .navbar-brand {
+    padding: 0.25rem 0;
+}
+
+.portal-navbar .brand-title {
+    font-size: 1.25rem;
     letter-spacing: 0.5px;
 }
 
+.portal-navbar .brand-subtitle {
+    font-size: 0.65rem;
+    letter-spacing: 1.5px;
+    font-weight: 600;
+}
+
+.portal-navbar .nav-link {
+    color: var(--text-light-muted) !important;
+    font-weight: 500;
+    font-size: 0.9375rem;
+    padding: 0.5rem 0.85rem !important;
+    border-radius: 0.375rem;
+    transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.portal-navbar .nav-link:hover {
+    color: var(--text-light) !important;
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.portal-navbar .nav-link.active {
+    color: #ffffff !important;
+    font-weight: 600;
+    background-color: rgba(255, 255, 255, 0.14);
+    box-shadow: inset 0 -2px 0 var(--accent-red);
+}
+
+.portal-navbar .auth-btn {
+    font-weight: 500;
+    border-radius: 0.375rem;
+    transition: transform 0.15s ease, background-color 0.15s ease;
+}
+
+.portal-navbar .auth-btn:hover {
+    transform: translateY(-1px);
+}
+
+.portal-navbar .btn-danger {
+    background-color: var(--accent-red);
+    border-color: var(--accent-red);
+}
+
+.portal-navbar .btn-danger:hover {
+    background-color: var(--accent-red-hover);
+    border-color: var(--accent-red-hover);
+}
+
+/* Mobile Navbar Collapsed State */
+@media (max-width: 991.98px) {
+    .portal-navbar .navbar-collapse {
+        padding-top: 1rem;
+        padding-bottom: 0.5rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+        margin-top: 0.5rem;
+    }
+
+    .portal-navbar .nav-link.active {
+        box-shadow: inset 3px 0 0 var(--accent-red);
+        background-color: rgba(255, 255, 255, 0.08);
+    }
+}
+
+/* ==========================================================================
+   Hero & Cards Styling
+   ========================================================================== */
+
 .hero-section {
-    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    background: linear-gradient(135deg, var(--gov-navy-primary) 0%, var(--gov-navy-dark) 100%);
     color: #ffffff;
-    border-radius: 1rem;
+    border-radius: 0.75rem;
     padding: 3.5rem 2rem;
+    border-left: 4px solid var(--accent-red);
 }
 
 .card-module {
@@ -41,7 +154,7 @@ footer {
 
 .card-module:hover {
     transform: translateY(-4px);
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+    box-shadow: 0 0.5rem 1rem rgba(11, 37, 69, 0.12) !important;
 }
 
 .badge-role {
@@ -49,3 +162,46 @@ footer {
     padding: 0.35em 0.65em;
 }
 
+/* ==========================================================================
+   Footer (Professional Government Service Style)
+   ========================================================================== */
+
+.portal-footer {
+    flex-shrink: 0;
+    background-color: var(--gov-navy-dark);
+    color: var(--text-light-muted);
+}
+
+.portal-footer .footer-top {
+    border-top: 3px solid var(--accent-red);
+}
+
+.portal-footer .footer-heading {
+    font-size: 0.875rem;
+    letter-spacing: 0.75px;
+    border-bottom: 2px solid rgba(220, 38, 38, 0.4);
+    display: inline-block;
+    padding-bottom: 0.35rem;
+}
+
+.portal-footer .footer-links a {
+    color: var(--text-light-muted);
+    text-decoration: none;
+    transition: color 0.15s ease, padding-left 0.15s ease;
+    display: inline-block;
+}
+
+.portal-footer .footer-links a:hover {
+    color: #ffffff;
+    padding-left: 4px;
+}
+
+.portal-footer .footer-contact li {
+    line-height: 1.6;
+}
+
+.portal-footer .footer-bottom {
+    background-color: var(--gov-navy-darker);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 0.8125rem;
+}
