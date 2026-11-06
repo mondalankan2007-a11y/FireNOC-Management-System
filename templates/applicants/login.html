@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Applicant Login | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="container py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:applicant_home' %}">Applicant Portal</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Login</li>
+        </ol>
+    </nav>
+
+    <div class="auth-container">
+        <!-- Login Card -->
+        <div class="auth-card">
+            <!-- Card Header -->
+            <div class="auth-header text-center">
+                <div class="auth-header-icon mx-auto mb-2">
+                    <i class="bi bi-box-arrow-in-right"></i>
+                </div>
+                <h1 class="h3 fw-bold mb-1">Applicant Login</h1>
+                <p class="text-white-50 mb-0 small">Sign in to your Fire NOC portal account</p>
+            </div>
+
+            <!-- Card Body -->
+            <div class="auth-body">
+                <!-- Informative Notice -->
+                <div class="auth-notice-card mb-4 d-flex align-items-start">
+                    <i class="bi bi-info-circle-fill text-primary fs-5 me-2 flex-shrink-0 mt-1"></i>
+                    <div>
+                        <strong>Portal Authentication Notice:</strong>
+                        Account registration is active. Full applicant login authentication and dashboard access are currently scheduled for the next development commit.
+                    </div>
+                </div>
+
+                <!-- Placeholder Login Form -->
+                <form method="post" action="#" onsubmit="return false;">
+                    {% csrf_token %}
+                    <!-- Email / Username -->
+                    <div class="mb-3">
+                        <label for="id_login_email" class="form-label">Email Address</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                            <input 
+                                type="email" 
+                                class="form-control" 
+                                id="id_login_email" 
+                                placeholder="name@example.com"
+                                autocomplete="username"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Password -->
+                    <div class="mb-3">
+                        <label for="id_login_password" class="form-label">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                            <input 
+                                type="password" 
+                                class="form-control" 
+                                id="id_login_password" 
+                                placeholder="Enter your password"
+                                autocomplete="current-password"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Submit Button Placeholder -->
+                    <div class="d-grid mb-3">
+                        <button type="button" class="btn btn-register-submit btn-lg shadow-sm" disabled>
+                            <i class="bi bi-box-arrow-in-right me-2"></i>Login (Coming Soon)
+                        </button>
+                    </div>
+
+                    <!-- Link to Register -->
+                    <p class="text-center text-muted mb-0 small">
+                        Don't have an account yet? 
+                        <a href="{% url 'register' %}" class="text-danger fw-semibold text-decoration-none">Register here</a>
+                    </p>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+

@@ -7,7 +7,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from .views import home
-from applicants.views import register
+from applicants.views import register, login_view
 
 urlpatterns = [
     # Admin Interface
@@ -16,8 +16,9 @@ urlpatterns = [
     # Home Landing Page
     path('', home, name='home'),
 
-    # Applicant Registration Route
+    # Applicant Authentication Routes
     path('register/', register, name='register'),
+    path('login/', login_view, name='login'),
 
     # Applicant Module Routes
     path('applicant/', include('applicants.urls')),
