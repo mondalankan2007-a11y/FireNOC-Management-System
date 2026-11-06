@@ -1,0 +1,218 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Applicant Registration | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="container py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:applicant_home' %}">Applicant Portal</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Register</li>
+        </ol>
+    </nav>
+
+    <div class="auth-container">
+        <!-- Registration Card -->
+        <div class="auth-card">
+            <!-- Card Header -->
+            <div class="auth-header text-center">
+                <div class="auth-header-icon mx-auto mb-2">
+                    <i class="bi bi-person-plus-fill"></i>
+                </div>
+                <h1 class="h3 fw-bold mb-1">Applicant Registration</h1>
+                <p class="text-white-50 mb-0 small">Create your account to apply for and track Fire NOC certificates</p>
+            </div>
+
+            <!-- Card Body -->
+            <div class="auth-body">
+                <!-- Informational Portal Notice -->
+                <div class="auth-notice-card mb-4 d-flex align-items-start">
+                    <i class="bi bi-info-circle-fill text-danger fs-5 me-2 flex-shrink-0 mt-1"></i>
+                    <div>
+                        <strong>Fire Safety Compliance Portal:</strong>
+                        This registration is intended for building owners, commercial establishment managers, and authorized representatives applying for a Fire Department No Objection Certificate (NOC) and tracking scheduled inspections.
+                    </div>
+                </div>
+
+                <!-- Registration Form (UI-only for this commit) -->
+                <form method="post" action="" id="registrationForm" novalidate>
+                    {% csrf_token %}
+
+                    <!-- Full Name -->
+                    <div class="mb-3">
+                        <label for="id_full_name" class="form-label">
+                            Full Name <span class="required-star">*</span>
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-person"></i></span>
+                            <input 
+                                type="text" 
+                                class="form-control" 
+                                id="id_full_name" 
+                                name="full_name" 
+                                placeholder="Enter your full name" 
+                                required 
+                                autocomplete="name"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Email Address -->
+                    <div class="mb-3">
+                        <label for="id_email" class="form-label">
+                            Email Address <span class="required-star">*</span>
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-envelope"></i></span>
+                            <input 
+                                type="email" 
+                                class="form-control" 
+                                id="id_email" 
+                                name="email" 
+                                placeholder="name@example.com" 
+                                required 
+                                autocomplete="email"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Mobile Number -->
+                    <div class="mb-3">
+                        <label for="id_mobile_number" class="form-label">
+                            Mobile Number <span class="required-star">*</span>
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-phone"></i></span>
+                            <input 
+                                type="tel" 
+                                class="form-control" 
+                                id="id_mobile_number" 
+                                name="mobile_number" 
+                                placeholder="10-digit mobile number" 
+                                pattern="[0-9]{10}" 
+                                maxlength="10" 
+                                required 
+                                autocomplete="tel"
+                            >
+                        </div>
+                        <div class="form-text small text-muted">
+                            Used for SMS alerts on inspection dates and certificate approvals.
+                        </div>
+                    </div>
+
+                    <!-- Password -->
+                    <div class="mb-3">
+                        <label for="id_password" class="form-label">
+                            Password <span class="required-star">*</span>
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-lock"></i></span>
+                            <input 
+                                type="password" 
+                                class="form-control" 
+                                id="id_password" 
+                                name="password" 
+                                placeholder="Create a secure password (min. 8 characters)" 
+                                minlength="8" 
+                                required 
+                                autocomplete="new-password"
+                            >
+                            <button 
+                                class="btn btn-toggle-password" 
+                                type="button" 
+                                id="togglePasswordBtn" 
+                                title="Show / Hide Password" 
+                                aria-label="Toggle password visibility"
+                            >
+                                <i class="bi bi-eye" id="togglePasswordIcon"></i>
+                            </button>
+                        </div>
+                        <div class="form-text small text-muted">
+                            Must contain at least 8 characters.
+                        </div>
+                    </div>
+
+                    <!-- Confirm Password -->
+                    <div class="mb-4">
+                        <label for="id_confirm_password" class="form-label">
+                            Confirm Password <span class="required-star">*</span>
+                        </label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-shield-lock"></i></span>
+                            <input 
+                                type="password" 
+                                class="form-control" 
+                                id="id_confirm_password" 
+                                name="confirm_password" 
+                                placeholder="Confirm your password" 
+                                minlength="8" 
+                                required 
+                                autocomplete="new-password"
+                            >
+                            <button 
+                                class="btn btn-toggle-password" 
+                                type="button" 
+                                id="toggleConfirmPasswordBtn" 
+                                title="Show / Hide Confirm Password" 
+                                aria-label="Toggle confirm password visibility"
+                            >
+                                <i class="bi bi-eye" id="toggleConfirmPasswordIcon"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Submit Register Button -->
+                    <div class="d-grid mb-3">
+                        <button type="submit" class="btn btn-register-submit btn-lg shadow-sm">
+                            <i class="bi bi-person-check-fill me-2"></i>Register
+                        </button>
+                    </div>
+
+                    <!-- Link for Existing Users -->
+                    <p class="text-center text-muted mb-0 small">
+                        Already have an account? 
+                        <a href="#login" class="text-danger fw-semibold text-decoration-none">Login</a>
+                    </p>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Password visibility toggle functionality
+    document.addEventListener('DOMContentLoaded', function () {
+        function setupPasswordToggle(inputId, buttonId, iconId) {
+            const input = document.getElementById(inputId);
+            const button = document.getElementById(buttonId);
+            const icon = document.getElementById(iconId);
+
+            if (input && button && icon) {
+                button.addEventListener('click', function () {
+                    const isPassword = input.type === 'password';
+                    input.type = isPassword ? 'text' : 'password';
+
+                    if (isPassword) {
+                        icon.classList.remove('bi-eye');
+                        icon.classList.add('bi-eye-slash');
+                        button.setAttribute('aria-label', 'Hide password');
+                    } else {
+                        icon.classList.remove('bi-eye-slash');
+                        icon.classList.add('bi-eye');
+                        button.setAttribute('aria-label', 'Show password');
+                    }
+                });
+            }
+        }
+
+        setupPasswordToggle('id_password', 'togglePasswordBtn', 'togglePasswordIcon');
+        setupPasswordToggle('id_confirm_password', 'toggleConfirmPasswordBtn', 'toggleConfirmPasswordIcon');
+    });
+</script>
+{% endblock %}
+
