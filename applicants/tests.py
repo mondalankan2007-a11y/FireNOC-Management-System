@@ -122,3 +122,23 @@ class ApplicantRegistrationTests(TestCase):
         # Passwords must NEVER appear in HTML
         self.assertNotContains(response, 'FireSafety#2026')
         self.assertNotContains(response, 'MismatchPassword#2026')
+
+    def test_login_page_renders_with_all_ui_elements(self):
+        """Verify the login page renders with all required form fields, controls, and links."""
+        response = self.client.get(self.login_url)
+        self.assertEqual(response.status_code, 200)
+        # Heading & Notice
+        self.assertContains(response, 'Applicant Login')
+        self.assertContains(response, 'Fire NOC Portal Access')
+        # Form fields
+        self.assertContains(response, 'id="id_email"')
+        self.assertContains(response, 'id="id_password"')
+        self.assertContains(response, 'id="togglePasswordBtn"')
+        # Remember Me & Forgot Password
+        self.assertContains(response, 'id="id_remember_me"')
+        self.assertContains(response, 'Remember Me')
+        self.assertContains(response, 'Forgot Password?')
+        # Login Button & Register Link
+        self.assertContains(response, 'Login')
+        self.assertContains(response, reverse('register'))
+        self.assertContains(response, "Don't have an account?")

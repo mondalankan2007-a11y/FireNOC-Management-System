@@ -120,7 +120,14 @@ def register(request):
 
 def login_view(request):
     """
-    Placeholder login view.
-    Full login authentication will be implemented in a subsequent commit.
+    Applicant login UI view.
+    Renders the login page containing email, password, show/hide toggle,
+    remember me checkbox, and navigation links.
+    Authentication logic will be implemented in a subsequent commit.
     """
+    if request.method == 'POST':
+        messages.info(
+            request,
+            "Login UI verified. Authentication logic will be enabled in the upcoming commit."
+        )
     return render(request, 'applicants/login.html')
