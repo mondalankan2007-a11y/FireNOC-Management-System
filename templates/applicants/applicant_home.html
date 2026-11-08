@@ -30,7 +30,7 @@
                 </div>
 
                 <p class="lead text-muted mb-4">
-                    Welcome to the Fire Department Applicant Portal. Here, building owners and authorized representatives can apply for a Fire No Objection Certificate (NOC) and track the real-time status of their applications throughout the inspection and approval lifecycle.
+                    Welcome{% if user.is_authenticated %}, <strong class="text-dark">{{ user.first_name|default:user.username }}</strong>{% endif %}, to the Fire Department Applicant Portal. Here, building owners and authorized representatives can apply for a Fire No Objection Certificate (NOC) and track the real-time status of their applications throughout the inspection and approval lifecycle.
                 </p>
 
                 <!-- Action Button Placeholders -->

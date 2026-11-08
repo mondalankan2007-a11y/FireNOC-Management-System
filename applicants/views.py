@@ -1,16 +1,20 @@
 import re
 from django.contrib import messages
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.shortcuts import render, redirect
+from django.utils.http import url_has_allowed_host_and_scheme
 
 
+@login_required(login_url='login')
 def applicant_home(request):
     """
     Applicant home/dashboard placeholder view.
-    Renders the Applicant Portal landing page with placeholder actions.
+    Protected route accessible only to authenticated applicants.
     """
     return render(request, 'applicants/applicant_home.html')
 
@@ -21,6 +25,9 @@ def register(request):
     Handles GET requests to render the form, and POST requests to validate
     and create an applicant user account using Django's built-in User model.
     """
+    if request.user.is_authenticated:
+        return redirect('applicants:applicant_home')
+
     if request.method == 'POST':
         full_name = request.POST.get('full_name', '').strip()
         email = request.POST.get('email', '').strip()
@@ -120,14 +127,64 @@ def register(request):
 
 def login_view(request):
     """
-    Applicant login UI view.
-    Renders the login page containing email, password, show/hide toggle,
-    remember me checkbox, and navigation links.
-    Authentication logic will be implemented in a subsequent commit.
+    Applicant login view.
+    Authenticates applicants using their registered email and password.
+    Creates a secure session on success and redirects to the applicant portal.
     """
+    if request.user.is_authenticated:
+        return redirect('applicants:applicant_home')
+
     if request.method == 'POST':
-        messages.info(
-            request,
-            "Login UI verified. Authentication logic will be enabled in the upcoming commit."
-        )
-    return render(request, 'applicants/login.html')
+        email = request.POST.get('email', '').strip()
+        password = request.POST.get('password', '')
+        remember_me = request.POST.get('remember_me')
+        next_url = request.POST.get('next', '').strip() or request.GET.get('next', '').strip()
+
+        # Validate required fields
+        if not email or not password:
+            messages.error(request, "Both email address and password are required.")
+            return render(request, 'applicants/login.html', {'email': email, 'next_url': next_url})
+
+        # Locate user by email and authenticate
+        user_obj = User.objects.filter(email__iexact=email).first()
+        username = user_obj.username if user_obj else email
+        user = authenticate(request, username=username, password=password)
+
+        if user is not None:
+            if not user.is_active:
+                messages.error(request, "Your account has been deactivated. Please contact the administrator.")
+                return render(request, 'applicants/login.html', {'email': email, 'next_url': next_url})
+
+            # Establish Django session
+            login(request, user)
+
+            # Manage session expiration based on Remember Me
+            if not remember_me:
+                request.session.set_expiry(0)  # Expires when browser is closed
+            else:
+                request.session.set_expiry(1209600)  # 2 weeks
+
+            messages.success(request, f"Welcome back, {user.first_name or user.username}!")
+
+            # Safe redirect: prevent open redirect vulnerabilities
+            if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+                return redirect(next_url)
+            return redirect('applicants:applicant_home')
+        else:
+            messages.error(request, "Invalid email address or password. Please check your credentials and try again.")
+            return render(request, 'applicants/login.html', {'email': email, 'next_url': next_url})
+
+    next_url = request.GET.get('next', '').strip()
+    return render(request, 'applicants/login.html', {'next_url': next_url})
+
+
+def logout_view(request):
+    """
+    Applicant logout view.
+    Terminates the user's session, clears session cookies,
+    and redirects to the login page with a success message.
+    Accepts POST requests (standard secure method) as well as GET fallbacks.
+    """
+    logout(request)
+    messages.success(request, "You have been successfully logged out.")
+    return redirect('login')

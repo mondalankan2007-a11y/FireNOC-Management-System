@@ -80,7 +80,7 @@ FireNOC-Management-System/
 │   ├── models.py           # (To be implemented)
 │   ├── tests.py
 │   ├── urls.py             # Routes for /applicant/
-│   └── views.py            # Placeholder view: "Applicant Module Coming Soon"
+│   └── views.py            # Applicant portal, registration & authentication views
 ├── templates/              # Global HTML templates
 │   ├── base.html           # Common Bootstrap master layout
 │   ├── home.html           # Landing page extending base.html
