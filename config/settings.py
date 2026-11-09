@@ -170,5 +170,5 @@ MESSAGE_TAGS = {
 
 # Authentication URLs
 LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'applicants:applicant_home'
+LOGIN_REDIRECT_URL = 'applicants:dashboard'
 LOGOUT_REDIRECT_URL = 'login'

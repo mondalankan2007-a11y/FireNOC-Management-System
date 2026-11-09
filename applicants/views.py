@@ -1,4 +1,5 @@
 import re
+from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
@@ -10,13 +11,127 @@ from django.shortcuts import render, redirect
 from django.utils.http import url_has_allowed_host_and_scheme
 
 
+def get_applicant_dashboard_data(user):
+    """
+    Retrieve dynamic dashboard statistics and recent applications for the authenticated applicant.
+    
+    Coordinates with the agreed team schema:
+    - Filters strictly by the authenticated user to maintain data isolation.
+    - Uses Django ORM .filter() and .count() aggregations for optimal database performance.
+    - Status definitions aligned across modules:
+        * Pending: PENDING, SUBMITTED, UNDER_REVIEW, UNDER_INSPECTION
+        * Approved: APPROVED, CLEARED
+        * NOCs Issued: NOC_ISSUED, ISSUED (or NOC certificate records)
+    - If the Application or NOC model has not been implemented yet (responsibility of
+      Harsh / Admin module), gracefully defaults each statistic to zero and recent
+      applications to an empty list rather than creating duplicate models in applicants/.
+    """
+    stats = {
+        'total_applications': 0,
+        'pending_applications': 0,
+        'approved_applications': 0,
+        'nocs_issued': 0,
+    }
+    recent_applications = []
+
+    # Dynamic model inspection across installed apps (e.g. applications, noc, admin_noc)
+    Application = None
+    user_fk_field = 'applicant'
+    for app_config in apps.get_app_configs():
+        for model in app_config.get_models():
+            model_name = model.__name__.lower()
+            if model_name in ('application', 'firenocapplication', 'nocapplication'):
+                field_names = [f.name for f in model._meta.get_fields()]
+                if 'applicant' in field_names:
+                    Application = model
+                    user_fk_field = 'applicant'
+                    break
+                elif 'user' in field_names:
+                    Application = model
+                    user_fk_field = 'user'
+                    break
+        if Application:
+            break
+
+    # Dynamic NOC model inspection
+    NOC = None
+    noc_user_field = 'applicant'
+    for app_config in apps.get_app_configs():
+        for model in app_config.get_models():
+            model_name = model.__name__.lower()
+            if model_name in ('noc', 'firenoc', 'certificate', 'issuednoc'):
+                field_names = [f.name for f in model._meta.get_fields()]
+                if 'applicant' in field_names:
+                    NOC = model
+                    noc_user_field = 'applicant'
+                    break
+                elif 'user' in field_names:
+                    NOC = model
+                    noc_user_field = 'user'
+                    break
+        if NOC:
+            break
+
+    # If Application model is integrated in the project, query ORM counts scoped strictly to user
+    if Application is not None:
+        user_applications = Application.objects.filter(**{user_fk_field: user})
+
+        # 1. Total Applications count
+        stats['total_applications'] = user_applications.count()
+
+        # 2. Pending Applications count
+        stats['pending_applications'] = user_applications.filter(
+            status__in=[
+                'PENDING', 'SUBMITTED', 'UNDER_REVIEW', 'UNDER_INSPECTION',
+                'pending', 'submitted', 'under_review', 'under_inspection'
+            ]
+        ).count()
+
+        # 3. Approved Applications count
+        stats['approved_applications'] = user_applications.filter(
+            status__in=['APPROVED', 'CLEARED', 'approved', 'cleared']
+        ).count()
+
+        # 4. NOCs Issued count (from NOC model or NOC_ISSUED status)
+        if NOC is not None:
+            stats['nocs_issued'] = NOC.objects.filter(**{noc_user_field: user}).count()
+        else:
+            stats['nocs_issued'] = user_applications.filter(
+                status__in=['NOC_ISSUED', 'ISSUED', 'noc_issued', 'issued']
+            ).count()
+
+        # Recent Applications list (latest 5)
+        ordering = '-created_at' if hasattr(Application, 'created_at') else '-id'
+        recent_applications = list(user_applications.order_by(ordering)[:5])
+
+    return stats, recent_applications
+
+
 @login_required(login_url='login')
 def applicant_home(request):
     """
-    Applicant home/dashboard placeholder view.
-    Protected route accessible only to authenticated applicants.
+    Applicant home view.
+    Redirects authenticated applicants to the full dashboard.
     """
-    return render(request, 'applicants/applicant_home.html')
+    return redirect('applicants:dashboard')
+
+
+@login_required(login_url='login')
+def dashboard(request):
+    """
+    Applicant Dashboard view.
+    Protected route accessible only to authenticated applicants.
+    Prepares metrics and lists recent applications for the logged-in applicant.
+    Ensures applicants can only view their own data.
+    """
+    stats, recent_applications = get_applicant_dashboard_data(request.user)
+
+    context = {
+        'stats': stats,
+        'recent_applications': recent_applications,
+        'applicant': request.user,
+    }
+    return render(request, 'applicants/dashboard.html', context)
 
 
 def register(request):
@@ -26,7 +141,7 @@ def register(request):
     and create an applicant user account using Django's built-in User model.
     """
     if request.user.is_authenticated:
-        return redirect('applicants:applicant_home')
+        return redirect('applicants:dashboard')
 
     if request.method == 'POST':
         full_name = request.POST.get('full_name', '').strip()
@@ -129,10 +244,10 @@ def login_view(request):
     """
     Applicant login view.
     Authenticates applicants using their registered email and password.
-    Creates a secure session on success and redirects to the applicant portal.
+    Creates a secure session on success and redirects to the applicant dashboard.
     """
     if request.user.is_authenticated:
-        return redirect('applicants:applicant_home')
+        return redirect('applicants:dashboard')
 
     if request.method == 'POST':
         email = request.POST.get('email', '').strip()
@@ -169,7 +284,7 @@ def login_view(request):
             # Safe redirect: prevent open redirect vulnerabilities
             if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
                 return redirect(next_url)
-            return redirect('applicants:applicant_home')
+            return redirect('applicants:dashboard')
         else:
             messages.error(request, "Invalid email address or password. Please check your credentials and try again.")
             return render(request, 'applicants/login.html', {'email': email, 'next_url': next_url})

@@ -1,0 +1,313 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Applicant Dashboard | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:applicant_home' %}">Applicant Portal</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Dashboard</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Sidebar Navigation (Col 1) -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <!-- User Profile Header -->
+                <div class="dashboard-user-profile text-center">
+                    <div class="dashboard-user-avatar mx-auto mb-2">
+                        <i class="bi bi-person-fill"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">
+                        {{ user.first_name|default:user.username }} {{ user.last_name|default:'' }}
+                    </h5>
+                    <small class="text-white-50 d-block text-truncate px-2">{{ user.email }}</small>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle mt-2 px-2 py-1 small">
+                        <i class="bi bi-patch-check-fill me-1"></i>Verified Applicant
+                    </span>
+                </div>
+
+                <!-- Navigation Links List -->
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <!-- 1. Dashboard (Active & Functional) -->
+                        <a class="nav-link active" href="{% url 'applicants:dashboard' %}">
+                            <i class="bi bi-grid-1x2-fill me-2"></i>Dashboard
+                        </a>
+
+                        <!-- 2. New Application -->
+                        <a class="nav-link" href="#new-application" data-bs-toggle="tooltip" title="Application filing will be available in the upcoming commit">
+                            <i class="bi bi-file-earmark-plus me-2 text-primary"></i>New Application
+                            <span class="badge bg-secondary-subtle text-secondary border ms-auto small">Next</span>
+                        </a>
+
+                        <!-- 3. My Applications -->
+                        <a class="nav-link" href="#my-applications" data-bs-toggle="tooltip" title="View all submitted applications">
+                            <i class="bi bi-folder2 me-2"></i>My Applications
+                        </a>
+
+                        <!-- 4. Documents -->
+                        <a class="nav-link" href="#documents" data-bs-toggle="tooltip" title="Uploaded fire safety documents and architectural layouts">
+                            <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
+                        </a>
+
+                        <!-- 5. Inspection Details -->
+                        <a class="nav-link" href="#inspection-details" data-bs-toggle="tooltip" title="On-site physical inspection reports and scheduled dates">
+                            <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
+                        </a>
+
+                        <!-- 6. Corrections -->
+                        <a class="nav-link" href="#corrections" data-bs-toggle="tooltip" title="Outstanding deficiency rectification notices">
+                            <i class="bi bi-exclamation-triangle me-2"></i>Corrections
+                        </a>
+
+                        <!-- 7. My NOCs -->
+                        <a class="nav-link" href="#my-nocs" data-bs-toggle="tooltip" title="Issued digital Fire No Objection Certificates">
+                            <i class="bi bi-award me-2"></i>My NOCs
+                        </a>
+
+                        <!-- 8. Profile -->
+                        <a class="nav-link" href="#profile" data-bs-toggle="tooltip" title="Manage your personal and contact details">
+                            <i class="bi bi-person-gear me-2"></i>Profile
+                        </a>
+
+                        <hr class="my-2 border-secondary-subtle">
+
+                        <!-- 9. Logout (Functional POST Request) -->
+                        <form method="post" action="{% url 'logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Department Help & Support Box -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi bi-headset text-danger fs-4 me-2"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Applicant Helpdesk</h6>
+                </div>
+                <p class="small text-muted mb-2">Need assistance with your Fire NOC application or scheduling?</p>
+                <div class="small fw-semibold text-dark mb-1">
+                    <i class="bi bi-telephone text-danger me-1"></i>Toll-Free: 1800-11-FIRE
+                </div>
+                <div class="small fw-semibold text-dark">
+                    <i class="bi bi-envelope text-danger me-1"></i>support-firenoc@gov.in
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Dashboard Content (Col 2) -->
+        <main class="col-lg-9 col-md-8">
+            <!-- 1. Welcome Section -->
+            <div class="dashboard-welcome-banner shadow-sm mb-4">
+                <div class="row align-items-center">
+                    <div class="col-lg-8 mb-3 mb-lg-0">
+                        <span class="badge bg-danger mb-2 px-3 py-1 text-uppercase fw-semibold">
+                            <i class="bi bi-shield-shaded me-1"></i>Fire Safety Compliance Portal
+                        </span>
+                        <h1 class="h3 fw-bold text-white mb-2">
+                            Welcome back, {{ user.first_name|default:user.username }}!
+                        </h1>
+                        <p class="text-white-50 mb-0 lead fs-6">
+                            Manage your Fire NOC applications and track their progress from one place.
+                        </p>
+                    </div>
+                    <div class="col-lg-4 text-lg-end">
+                        <a href="#new-application" class="btn btn-danger btn-lg px-4 shadow-sm" data-bs-toggle="tooltip" title="Apply for a new Fire No Objection Certificate">
+                            <i class="bi bi-file-earmark-plus me-2"></i>Apply for Fire NOC
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Statistics Cards Section -->
+            <div class="row g-3 mb-4">
+                <!-- Card 1: Total Applications -->
+                <div class="col-xl-3 col-sm-6">
+                    <div class="dashboard-stat-card stat-navy h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Total Applications</small>
+                                <div class="dashboard-stat-number">{{ stats.total_applications }}</div>
+                            </div>
+                            <div class="dashboard-stat-icon bg-primary-subtle text-primary">
+                                <i class="bi bi-folder-check"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 2: Pending Applications -->
+                <div class="col-xl-3 col-sm-6">
+                    <div class="dashboard-stat-card stat-amber h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Pending Applications</small>
+                                <div class="dashboard-stat-number text-warning-emphasis">{{ stats.pending_applications }}</div>
+                            </div>
+                            <div class="dashboard-stat-icon bg-warning-subtle text-warning">
+                                <i class="bi bi-hourglass-split"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 3: Approved Applications -->
+                <div class="col-xl-3 col-sm-6">
+                    <div class="dashboard-stat-card stat-green h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Approved Applications</small>
+                                <div class="dashboard-stat-number text-success">{{ stats.approved_applications }}</div>
+                            </div>
+                            <div class="dashboard-stat-icon bg-success-subtle text-success">
+                                <i class="bi bi-check-circle"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 4: NOCs Issued -->
+                <div class="col-xl-3 col-sm-6">
+                    <div class="dashboard-stat-card stat-red h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">NOCs Issued</small>
+                                <div class="dashboard-stat-number text-danger">{{ stats.nocs_issued }}</div>
+                            </div>
+                            <div class="dashboard-stat-icon bg-danger-subtle text-danger">
+                                <i class="bi bi-award"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Recent Applications Section -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-clock-history text-danger fs-5 me-2"></i>
+                        <h5 class="fw-bold mb-0 text-dark">Recent Applications</h5>
+                    </div>
+                    <span class="badge bg-light text-muted border">Latest Submissions</span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th scope="col" class="ps-3">Application ID</th>
+                                    <th scope="col">Building Name</th>
+                                    <th scope="col">Submission Date</th>
+                                    <th scope="col">Current Status</th>
+                                    <th scope="col" class="text-end pe-3">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if recent_applications %}
+                                    {% for app in recent_applications %}
+                                        <tr>
+                                            <td class="ps-3 fw-bold text-dark">{{ app.application_id|default:app.id }}</td>
+                                            <td>{{ app.building_name }}</td>
+                                            <td>{{ app.submission_date|default:app.created_at|date:"d M Y" }}</td>
+                                            <td>
+                                                {% if app.status == 'APPROVED' or app.status == 'CLEARED' %}
+                                                    <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                        <i class="bi bi-check-circle me-1"></i>{{ app.get_status_display|default:app.status }}
+                                                    </span>
+                                                {% elif app.status == 'PENDING' or app.status == 'UNDER_REVIEW' or app.status == 'SUBMITTED' %}
+                                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                                                        <i class="bi bi-hourglass-split me-1"></i>{{ app.get_status_display|default:app.status }}
+                                                    </span>
+                                                {% elif app.status == 'NOC_ISSUED' %}
+                                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                                        <i class="bi bi-award me-1"></i>{{ app.get_status_display|default:app.status }}
+                                                    </span>
+                                                {% elif app.status == 'REJECTED' or app.status == 'DEFICIENT' %}
+                                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                                        <i class="bi bi-x-circle me-1"></i>{{ app.get_status_display|default:app.status }}
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">
+                                                        {{ app.get_status_display|default:app.status }}
+                                                    </span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="text-end pe-3">
+                                                <a href="#view-application" class="btn btn-sm btn-outline-primary" data-bs-toggle="tooltip" title="Application details view">
+                                                    View Details
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <!-- Empty State Row -->
+                                    <tr>
+                                        <td colspan="5" class="text-center py-5">
+                                            <div class="display-6 text-muted opacity-50 mb-3">
+                                                <i class="bi bi-folder-x"></i>
+                                            </div>
+                                            <h5 class="fw-bold text-dark mb-2">You haven't submitted any applications yet.</h5>
+                                            <p class="text-muted small mb-3 mx-auto" style="max-width: 480px;">
+                                                Apply for your building's Fire Safety Certificate (NOC) to initiate desk verification, site inspection scheduling, and clearance approval.
+                                            </p>
+                                            <a href="#new-application" class="btn btn-danger px-4" data-bs-toggle="tooltip" title="Application filing will be enabled in upcoming commits">
+                                                <i class="bi bi-file-earmark-plus me-1"></i>Start New Application
+                                            </a>
+                                        </td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Quick Guidelines Card -->
+            <div class="card border-0 shadow-sm bg-light">
+                <div class="card-body p-4">
+                    <h6 class="fw-bold text-dark mb-2">
+                        <i class="bi bi-info-circle text-primary me-2"></i>Fire NOC Application Workflow Guide
+                    </h6>
+                    <div class="row g-3 small text-muted pt-2">
+                        <div class="col-md-3">
+                            <div class="bg-white p-3 rounded h-100 border">
+                                <strong class="text-dark d-block mb-1">Step 1: Apply</strong>
+                                Submit architectural layouts, building occupancy category, and water supply plans.
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="bg-white p-3 rounded h-100 border">
+                                <strong class="text-dark d-block mb-1">Step 2: Verification</strong>
+                                Desk officer audits documents and verifies building safety norms compliance.
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="bg-white p-3 rounded h-100 border">
+                                <strong class="text-dark d-block mb-1">Step 3: Site Inspection</strong>
+                                Fire officer inspects hydrants, sprinklers, exits, and alarms on site.
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="bg-white p-3 rounded h-100 border">
+                                <strong class="text-dark d-block mb-1">Step 4: Clearance</strong>
+                                Digitally signed Fire NOC is issued upon full hazard mitigation.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+{% endblock %}

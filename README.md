@@ -86,6 +86,7 @@ FireNOC-Management-System/
 │   ├── home.html           # Landing page extending base.html
 │   └── applicants/
 │       ├── applicant_home.html # Applicant portal landing page
+│       ├── dashboard.html      # Applicant dashboard with sidebar & statistics
 │       ├── register.html       # Applicant registration page
 │       └── login.html          # Applicant login page
 ├── static/                 # Static assets (CSS, JS, images)
