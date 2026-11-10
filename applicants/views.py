@@ -143,6 +143,7 @@ def application_new(request):
     POST submission logic is NOT implemented in this commit; this view only
     handles GET requests and renders the template.
     """
+    import datetime
     # Pre-fill applicant details from the authenticated user profile
     full_name = (
         f"{request.user.first_name} {request.user.last_name}".strip()
@@ -152,7 +153,11 @@ def application_new(request):
         'full_name': full_name,
         'email': request.user.email,
     }
-    return render(request, 'applicants/application_form.html', {'prefill': prefill})
+    current_year = datetime.date.today().year
+    return render(request, 'applicants/application_form.html', {
+        'prefill': prefill,
+        'current_year': current_year,
+    })
 
 
 def register(request):

@@ -614,3 +614,42 @@ class ApplicationFormViewTests(TestCase):
         # Application Type
         self.assertContains(response, 'New NOC')
         self.assertContains(response, 'NOC Renewal')
+
+    def test_building_details_validation_and_interactive_elements(self):
+        """
+        Verify building details validation attributes, 'Other' building type container,
+        static JS inclusion, and live status alert container.
+        """
+        self.client.force_login(self.user)
+        response = self.client.get(self.form_url)
+        self.assertEqual(response.status_code, 200)
+
+        # 1. Building Name: max 150
+        self.assertContains(response, 'maxlength="150"')
+
+        # 2. Building Type 'Other' interactive field
+        self.assertContains(response, 'id="other_building_type_wrapper"')
+        self.assertContains(response, 'id="id_building_type_other"')
+
+        # 3. PIN Code: Indian 6-digit format pattern
+        self.assertContains(response, 'pattern="[1-9][0-9]{5}"')
+        self.assertContains(response, 'minlength="6"')
+        self.assertContains(response, 'maxlength="6"')
+
+        # 4. Number of Floors: positive integer 1-200
+        self.assertContains(response, 'min="1"')
+        self.assertContains(response, 'max="200"')
+        self.assertContains(response, 'step="1"')
+
+        # 5. Built-up Area: positive decimal value
+        self.assertContains(response, 'min="0.01"')
+        self.assertContains(response, 'step="0.01"')
+
+        # 6. Year of Construction: 1900 to current year
+        self.assertContains(response, 'min="1900"')
+        self.assertIn('current_year', response.context)
+        self.assertEqual(response.context['current_year'], datetime.date.today().year)
+
+        # 7. Form validation status element & static JS link
+        self.assertContains(response, 'id="formValidationStatus"')
+        self.assertContains(response, 'js/application_form.js')

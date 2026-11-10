@@ -168,7 +168,7 @@
                                 <label for="id_mobile" class="form-label fw-semibold">
                                     Mobile Number <span class="text-danger">*</span>
                                 </label>
-                                <div class="input-group">
+                                <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-phone text-muted"></i>
                                     </span>
@@ -179,13 +179,18 @@
                                         id="id_mobile"
                                         name="mobile_number"
                                         placeholder="e.g. 9876543210"
-                                        pattern="[0-9]{10}"
+                                        pattern="[6-9][0-9]{9}"
+                                        minlength="10"
                                         maxlength="10"
+                                        inputmode="numeric"
                                         required
-                                        aria-describedby="mobile_help"
+                                        aria-describedby="mobile_feedback"
                                     >
+                                    <div class="invalid-feedback" id="mobile_feedback">
+                                        Enter a valid 10-digit mobile number starting with 6, 7, 8, or 9.
+                                    </div>
                                 </div>
-                                <div id="mobile_help" class="form-text">Enter your 10-digit registered mobile number.</div>
+                                <div id="mobile_help" class="form-text">10-digit primary contact number.</div>
                             </div>
                         </div>
                     </div>
@@ -211,7 +216,7 @@
                                 <label for="id_building_name" class="form-label fw-semibold">
                                     Building / Premises Name <span class="text-danger">*</span>
                                 </label>
-                                <div class="input-group">
+                                <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-building text-muted"></i>
                                     </span>
@@ -221,10 +226,15 @@
                                         id="id_building_name"
                                         name="building_name"
                                         placeholder="e.g. Green Heights Commercial Complex"
-                                        maxlength="200"
+                                        maxlength="150"
                                         required
+                                        aria-describedby="building_name_feedback"
                                     >
+                                    <div class="invalid-feedback" id="building_name_feedback">
+                                        Building name is required (max 150 characters).
+                                    </div>
                                 </div>
+                                <div class="form-text">Maximum 150 characters.</div>
                             </div>
 
                             <!-- Building Type -->
@@ -232,11 +242,12 @@
                                 <label for="id_building_type" class="form-label fw-semibold">
                                     Building Type <span class="text-danger">*</span>
                                 </label>
-                                <div class="input-group">
+                                <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-tags text-muted"></i>
                                     </span>
-                                    <select class="form-select border-start-0" id="id_building_type" name="building_type" required>
+                                    <select class="form-select border-start-0" id="id_building_type" name="building_type" required
+                                            aria-describedby="building_type_feedback">
                                         <option value="" disabled selected>— Select Building Type —</option>
                                         <option value="RESIDENTIAL">Residential</option>
                                         <option value="COMMERCIAL">Commercial</option>
@@ -246,7 +257,35 @@
                                         <option value="HOTEL">Hotel</option>
                                         <option value="OTHER">Other</option>
                                     </select>
+                                    <div class="invalid-feedback" id="building_type_feedback">
+                                        Please select a building type.
+                                    </div>
                                 </div>
+                            </div>
+
+                            <!-- "Other" building type specification — hidden by default -->
+                            <div class="col-md-6 offset-md-6" id="other_building_type_wrapper" style="display:none;" aria-live="polite">
+                                <label for="id_building_type_other" class="form-label fw-semibold">
+                                    Specify Building Type <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group has-validation">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-pencil text-muted"></i>
+                                    </span>
+                                    <input
+                                        type="text"
+                                        class="form-control border-start-0"
+                                        id="id_building_type_other"
+                                        name="building_type_other"
+                                        placeholder="Describe the building type"
+                                        maxlength="100"
+                                        aria-describedby="building_type_other_feedback"
+                                    >
+                                    <div class="invalid-feedback" id="building_type_other_feedback">
+                                        Please describe the building type (required when "Other" is selected).
+                                    </div>
+                                </div>
+                                <div class="form-text">Briefly describe the type of building (e.g., Warehouse, Religious, Mixed-Commercial).</div>
                             </div>
 
                             <!-- Building Address -->
@@ -254,8 +293,8 @@
                                 <label for="id_building_address" class="form-label fw-semibold">
                                     Building Address <span class="text-danger">*</span>
                                 </label>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-white border-end-0">
+                                <div class="input-group has-validation">
+                                    <span class="input-group-text bg-white border-end-0 align-items-start pt-2">
                                         <i class="bi bi-geo-alt text-muted"></i>
                                     </span>
                                     <textarea
@@ -266,8 +305,13 @@
                                         placeholder="Door/Plot No., Street Name, Locality / Area"
                                         maxlength="500"
                                         required
+                                        aria-describedby="building_address_feedback"
                                     ></textarea>
+                                    <div class="invalid-feedback" id="building_address_feedback">
+                                        Building address is required.
+                                    </div>
                                 </div>
+                                <div class="form-text">Include plot/door number, street name and locality.</div>
                             </div>
 
                             <!-- City -->
@@ -283,7 +327,11 @@
                                     placeholder="e.g. Kolkata"
                                     maxlength="100"
                                     required
+                                    aria-describedby="city_feedback"
                                 >
+                                <div class="invalid-feedback" id="city_feedback">
+                                    City / town name is required.
+                                </div>
                             </div>
 
                             <!-- State -->
@@ -291,7 +339,8 @@
                                 <label for="id_state" class="form-label fw-semibold">
                                     State <span class="text-danger">*</span>
                                 </label>
-                                <select class="form-select" id="id_state" name="state" required>
+                                <select class="form-select" id="id_state" name="state" required
+                                        aria-describedby="state_feedback">
                                     <option value="" disabled selected>— Select State —</option>
                                     <option>Andhra Pradesh</option>
                                     <option>Arunachal Pradesh</option>
@@ -330,6 +379,9 @@
                                     <option>Lakshadweep</option>
                                     <option>Puducherry</option>
                                 </select>
+                                <div class="invalid-feedback" id="state_feedback">
+                                    Please select a state or union territory.
+                                </div>
                             </div>
 
                             <!-- PIN Code -->
@@ -337,7 +389,7 @@
                                 <label for="id_pin_code" class="form-label fw-semibold">
                                     PIN Code <span class="text-danger">*</span>
                                 </label>
-                                <div class="input-group">
+                                <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-mailbox text-muted"></i>
                                     </span>
@@ -347,14 +399,18 @@
                                         id="id_pin_code"
                                         name="pin_code"
                                         placeholder="6-digit PIN"
-                                        pattern="[0-9]{6}"
+                                        pattern="[1-9][0-9]{5}"
                                         minlength="6"
                                         maxlength="6"
+                                        inputmode="numeric"
                                         required
-                                        aria-describedby="pin_help"
+                                        aria-describedby="pin_feedback"
                                     >
+                                    <div class="invalid-feedback" id="pin_feedback">
+                                        Enter a valid 6-digit Indian PIN code (cannot start with 0).
+                                    </div>
                                 </div>
-                                <div id="pin_help" class="form-text">Enter a valid 6-digit PIN code.</div>
+                                <div class="form-text">6-digit postal code — must not start with 0.</div>
                             </div>
 
                             <!-- Number of Floors -->
@@ -362,7 +418,7 @@
                                 <label for="id_num_floors" class="form-label fw-semibold">
                                     Number of Floors <span class="text-danger">*</span>
                                 </label>
-                                <div class="input-group">
+                                <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-layers text-muted"></i>
                                     </span>
@@ -374,10 +430,15 @@
                                         placeholder="e.g. 5"
                                         min="1"
                                         max="200"
+                                        step="1"
                                         required
+                                        aria-describedby="num_floors_feedback"
                                     >
+                                    <div class="invalid-feedback" id="num_floors_feedback">
+                                        Enter a whole number between 1 and 200.
+                                    </div>
                                 </div>
-                                <div class="form-text">Include basement floors if applicable.</div>
+                                <div class="form-text">Positive whole number, 1–200. Include basements.</div>
                             </div>
 
                             <!-- Built-up Area -->
@@ -385,7 +446,7 @@
                                 <label for="id_builtup_area" class="form-label fw-semibold">
                                     Built-up Area (sq. m) <span class="text-danger">*</span>
                                 </label>
-                                <div class="input-group">
+                                <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-aspect-ratio text-muted"></i>
                                     </span>
@@ -394,15 +455,19 @@
                                         class="form-control border-start-0"
                                         id="id_builtup_area"
                                         name="builtup_area"
-                                        placeholder="e.g. 1200"
-                                        min="1"
+                                        placeholder="e.g. 1200.50"
+                                        min="0.01"
                                         max="9999999"
                                         step="0.01"
                                         required
+                                        aria-describedby="builtup_area_feedback"
                                     >
                                     <span class="input-group-text bg-white">sq. m</span>
+                                    <div class="invalid-feedback" id="builtup_area_feedback">
+                                        Enter a positive value in square metres (e.g. 150.00).
+                                    </div>
                                 </div>
-                                <div class="form-text">Total built-up area across all floors.</div>
+                                <div class="form-text">Total built-up area across all floors, up to 2 decimal places.</div>
                             </div>
 
                             <!-- Year of Construction -->
@@ -410,7 +475,7 @@
                                 <label for="id_year_construction" class="form-label fw-semibold">
                                     Year of Construction <span class="text-danger">*</span>
                                 </label>
-                                <div class="input-group">
+                                <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-calendar text-muted"></i>
                                     </span>
@@ -421,11 +486,16 @@
                                         name="year_construction"
                                         placeholder="e.g. 2010"
                                         min="1900"
-                                        max="2026"
+                                        max="{{ current_year }}"
+                                        step="1"
                                         required
+                                        aria-describedby="year_construction_feedback"
                                     >
+                                    <div class="invalid-feedback" id="year_construction_feedback">
+                                        Enter a 4-digit year between 1900 and the current year.
+                                    </div>
                                 </div>
-                                <div class="form-text">Year the building was originally constructed.</div>
+                                <div class="form-text">Year the building was originally constructed (not a future year).</div>
                             </div>
 
                             <!-- Occupancy Type -->
@@ -435,11 +505,12 @@
                                     <i class="bi bi-question-circle text-muted ms-1" data-bs-toggle="tooltip"
                                        title="Occupancy type as per National Building Code (NBC) of India"></i>
                                 </label>
-                                <div class="input-group">
+                                <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-people text-muted"></i>
                                     </span>
-                                    <select class="form-select border-start-0" id="id_occupancy_type" name="occupancy_type" required>
+                                    <select class="form-select border-start-0" id="id_occupancy_type" name="occupancy_type" required
+                                            aria-describedby="occupancy_type_feedback">
                                         <option value="" disabled selected>— Select Occupancy Type (NBC) —</option>
                                         <option value="RESIDENTIAL">Residential</option>
                                         <option value="BUSINESS">Business</option>
@@ -450,6 +521,9 @@
                                         <option value="HEALTHCARE">Healthcare</option>
                                         <option value="MIXED_USE">Mixed Use</option>
                                     </select>
+                                    <div class="invalid-feedback" id="occupancy_type_feedback">
+                                        Please select an occupancy type.
+                                    </div>
                                 </div>
                                 <div class="form-text">As classified under National Building Code of India.</div>
                             </div>
@@ -477,7 +551,7 @@
                                 <label class="form-label fw-semibold">
                                     Application Type <span class="text-danger">*</span>
                                 </label>
-                                <div class="d-flex flex-column gap-2">
+                                <div class="d-flex flex-column gap-2" id="application_type_group">
                                     <div class="form-check app-form-radio-card">
                                         <input class="form-check-input" type="radio" name="application_type"
                                                id="app_type_new" value="NEW_NOC" required>
@@ -498,6 +572,9 @@
                                             </div>
                                         </label>
                                     </div>
+                                    <div class="invalid-feedback" id="app_type_feedback" style="display:none;">
+                                        Please select an application type (New NOC or Renewal).
+                                    </div>
                                 </div>
                             </div>
 
@@ -506,16 +583,21 @@
                                 <label for="id_purpose" class="form-label fw-semibold">
                                     Purpose of Application <span class="text-danger">*</span>
                                 </label>
-                                <textarea
-                                    class="form-control"
-                                    id="id_purpose"
-                                    name="purpose"
-                                    rows="3"
-                                    placeholder="Briefly describe why you are applying for a Fire NOC (e.g., 'Required for occupancy certificate from local municipality', 'Business license renewal', etc.)"
-                                    maxlength="1000"
-                                    required
-                                    aria-describedby="purpose_help"
-                                ></textarea>
+                                <div class="has-validation">
+                                    <textarea
+                                        class="form-control"
+                                        id="id_purpose"
+                                        name="purpose"
+                                        rows="3"
+                                        placeholder="Briefly describe why you are applying for a Fire NOC (e.g., 'Required for occupancy certificate from local municipality', 'Business license renewal', etc.)"
+                                        maxlength="1000"
+                                        required
+                                        aria-describedby="purpose_feedback purpose_help"
+                                    ></textarea>
+                                    <div class="invalid-feedback" id="purpose_feedback">
+                                        Please specify the purpose of this Fire NOC application.
+                                    </div>
+                                </div>
                                 <div id="purpose_help" class="form-text d-flex justify-content-between">
                                     <span>Provide a clear and accurate purpose. Max 1000 characters.</span>
                                     <span id="purpose_char_count" class="text-muted">0 / 1000</span>
@@ -546,20 +628,26 @@
                     </div>
                 </div>
 
+                <!-- Live Validation Status Alert Container -->
+                <div id="formValidationStatus" class="alert d-none mb-4" role="alert" aria-live="polite"></div>
+
                 <!-- =================================================
                      Declaration & Submission Row
                      ================================================= -->
                 <div class="card border-0 shadow-sm mb-4">
                     <div class="card-body p-4">
                         <!-- Declaration -->
-                        <div class="form-check mb-4">
-                            <input class="form-check-input" type="checkbox" id="id_declaration" name="declaration" required>
+                        <div class="form-check has-validation mb-4">
+                            <input class="form-check-input" type="checkbox" id="id_declaration" name="declaration" required aria-describedby="declaration_feedback">
                             <label class="form-check-label small" for="id_declaration">
                                 I hereby declare that all information provided in this application is true, complete, and
                                 accurate to the best of my knowledge. I understand that providing false information may
                                 result in rejection of this application and legal action under applicable laws.
                                 <span class="text-danger">*</span>
                             </label>
+                            <div class="invalid-feedback" id="declaration_feedback">
+                                You must acknowledge and accept the declaration before submitting.
+                            </div>
                         </div>
 
                         <!-- Buttons -->
@@ -576,7 +664,7 @@
                                 <button type="button" class="btn btn-danger px-5"
                                         onclick="handleFormSubmit(event)"
                                         data-bs-toggle="tooltip"
-                                        title="Submission will be enabled after document upload is implemented">
+                                        title="Validates all building details and form sections">
                                     <i class="bi bi-send me-2"></i>Submit Application
                                 </button>
                             </div>
@@ -588,7 +676,7 @@
                         <!-- Submission note -->
                         <div class="alert alert-light border small text-muted mt-3 mb-0">
                             <i class="bi bi-info-circle text-primary me-2"></i>
-                            <strong>Note:</strong> Application submission and document upload functionality will be enabled in the next commit. Currently this form is a UI preview only.
+                            <strong>Note:</strong> Application submission and document upload functionality will be enabled in the next commit. Currently this form validates building details and interactive UI fields.
                         </div>
                     </div>
                 </div>
@@ -601,145 +689,6 @@
 
 
 {% block extra_js %}
-<script>
-(function () {
-    'use strict';
-
-    /* -------------------------------------------------------
-       1. Character counters for textareas
-    ------------------------------------------------------- */
-    function wireCharCounter(textareaId, counterId, max) {
-        const ta = document.getElementById(textareaId);
-        const counter = document.getElementById(counterId);
-        if (!ta || !counter) return;
-        const update = () => {
-            const len = ta.value.length;
-            counter.textContent = len + ' / ' + max;
-            counter.classList.toggle('text-danger', len >= max);
-        };
-        ta.addEventListener('input', update);
-        update();
-    }
-    wireCharCounter('id_purpose', 'purpose_char_count', 1000);
-    wireCharCounter('id_remarks', 'remarks_char_count', 2000);
-
-    /* -------------------------------------------------------
-       2. Mobile number — digits only
-    ------------------------------------------------------- */
-    const mobileInput = document.getElementById('id_mobile');
-    if (mobileInput) {
-        mobileInput.addEventListener('input', function () {
-            this.value = this.value.replace(/\D/g, '').slice(0, 10);
-        });
-    }
-
-    /* -------------------------------------------------------
-       3. PIN code — digits only
-    ------------------------------------------------------- */
-    const pinInput = document.getElementById('id_pin_code');
-    if (pinInput) {
-        pinInput.addEventListener('input', function () {
-            this.value = this.value.replace(/\D/g, '').slice(0, 6);
-        });
-    }
-
-    /* -------------------------------------------------------
-       4. Submit button — client-side validation feedback
-    ------------------------------------------------------- */
-    window.handleFormSubmit = function (e) {
-        const form = document.getElementById('nocApplicationForm');
-        if (!form.checkValidity()) {
-            e.preventDefault();
-            form.classList.add('was-validated');
-            // Scroll to first invalid field
-            const firstInvalid = form.querySelector(':invalid');
-            if (firstInvalid) {
-                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                firstInvalid.focus();
-            }
-        } else {
-            // POST submission not implemented yet — show info toast
-            e.preventDefault();
-            showNotImplementedToast();
-        }
-    };
-
-    function showNotImplementedToast() {
-        const existing = document.getElementById('nocSubmitToast');
-        if (existing) existing.remove();
-        const toast = document.createElement('div');
-        toast.id = 'nocSubmitToast';
-        toast.className = 'toast align-items-center text-bg-primary border-0 position-fixed bottom-0 end-0 m-3';
-        toast.setAttribute('role', 'alert');
-        toast.setAttribute('aria-live', 'assertive');
-        toast.style.zIndex = 2000;
-        toast.innerHTML = `
-            <div class="d-flex">
-                <div class="toast-body">
-                    <i class="bi bi-info-circle-fill me-2"></i>
-                    <strong>Submission not yet enabled.</strong> Database integration will be added in the next commit.
-                </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-            </div>`;
-        document.body.appendChild(toast);
-        const bsToast = new bootstrap.Toast(toast, { delay: 5000 });
-        bsToast.show();
-    }
-
-    /* -------------------------------------------------------
-       5. Sticky section nav — highlight on scroll
-    ------------------------------------------------------- */
-    const sections = [
-        { id: 'section-a', nav: 'nav-a', badge: 'A' },
-        { id: 'section-b', nav: 'nav-b', badge: 'B' },
-        { id: 'section-c', nav: 'nav-c', badge: 'C' },
-    ];
-    const colorMap = { 'nav-a': 'bg-danger', 'nav-b': 'bg-primary', 'nav-c': 'bg-success' };
-
-    function onScroll() {
-        let current = sections[0].nav;
-        sections.forEach(({ id, nav }) => {
-            const el = document.getElementById(id);
-            if (el && window.scrollY >= el.offsetTop - 160) current = nav;
-        });
-        sections.forEach(({ nav }) => {
-            const link = document.getElementById(nav);
-            if (!link) return;
-            const badge = link.querySelector('.app-form-step-badge');
-            if (nav === current) {
-                link.classList.add('active');
-                if (badge) {
-                    badge.className = 'app-form-step-badge text-white ' + (colorMap[nav] || 'bg-secondary');
-                }
-            } else {
-                link.classList.remove('active');
-                if (badge) badge.className = 'app-form-step-badge bg-secondary text-white';
-            }
-        });
-    }
-    document.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-
-    /* -------------------------------------------------------
-       6. Bootstrap tooltip init
-    ------------------------------------------------------- */
-    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
-        new bootstrap.Tooltip(el);
-    });
-
-    /* -------------------------------------------------------
-       7. Radio card — visual selection highlight
-    ------------------------------------------------------- */
-    document.querySelectorAll('.app-form-radio-card input[type="radio"]').forEach(radio => {
-        radio.addEventListener('change', function () {
-            document.querySelectorAll('.app-form-radio-card').forEach(card => {
-                card.classList.remove('selected');
-            });
-            this.closest('.app-form-radio-card').classList.add('selected');
-        });
-    });
-
-})();
-</script>
+<script src="{% static 'js/application_form.js' %}"></script>
 {% endblock %}
 
