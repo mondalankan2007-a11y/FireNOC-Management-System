@@ -41,9 +41,8 @@
                         </a>
 
                         <!-- 2. New Application -->
-                        <a class="nav-link" href="#new-application" data-bs-toggle="tooltip" title="Application filing will be available in the upcoming commit">
+                        <a class="nav-link" href="{% url 'applicants:application_new' %}">
                             <i class="bi bi-file-earmark-plus me-2 text-primary"></i>New Application
-                            <span class="badge bg-secondary-subtle text-secondary border ms-auto small">Next</span>
                         </a>
 
                         <!-- 3. My Applications -->
@@ -122,7 +121,7 @@
                         </p>
                     </div>
                     <div class="col-lg-4 text-lg-end">
-                        <a href="#new-application" class="btn btn-danger btn-lg px-4 shadow-sm" data-bs-toggle="tooltip" title="Apply for a new Fire No Objection Certificate">
+                        <a href="{% url 'applicants:application_new' %}" class="btn btn-danger btn-lg px-4 shadow-sm">
                             <i class="bi bi-file-earmark-plus me-2"></i>Apply for Fire NOC
                         </a>
                     </div>
@@ -261,7 +260,7 @@
                                             <p class="text-muted small mb-3 mx-auto" style="max-width: 480px;">
                                                 Apply for your building's Fire Safety Certificate (NOC) to initiate desk verification, site inspection scheduling, and clearance approval.
                                             </p>
-                                            <a href="#new-application" class="btn btn-danger px-4" data-bs-toggle="tooltip" title="Application filing will be enabled in upcoming commits">
+                                            <a href="{% url 'applicants:application_new' %}" class="btn btn-danger px-4">
                                                 <i class="bi bi-file-earmark-plus me-1"></i>Start New Application
                                             </a>
                                         </td>

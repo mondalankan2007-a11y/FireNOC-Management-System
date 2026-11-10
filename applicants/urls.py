@@ -9,4 +9,7 @@ urlpatterns = [
     path('register/', views.register, name='register'),
     path('login/', views.login_view, name='login'),
     path('logout/', views.logout_view, name='logout'),
+
+    # Fire NOC Application Form
+    path('applications/new/', views.application_new, name='application_new'),
 ]

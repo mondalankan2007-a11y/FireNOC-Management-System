@@ -134,6 +134,27 @@ def dashboard(request):
     return render(request, 'applicants/dashboard.html', context)
 
 
+@login_required(login_url='login')
+def application_new(request):
+    """
+    Applicant – New Fire NOC Application form view.
+    Renders a multi-section application form pre-filled with the authenticated
+    applicant's existing profile information (name, email).
+    POST submission logic is NOT implemented in this commit; this view only
+    handles GET requests and renders the template.
+    """
+    # Pre-fill applicant details from the authenticated user profile
+    full_name = (
+        f"{request.user.first_name} {request.user.last_name}".strip()
+        or request.user.username
+    )
+    prefill = {
+        'full_name': full_name,
+        'email': request.user.email,
+    }
+    return render(request, 'applicants/application_form.html', {'prefill': prefill})
+
+
 def register(request):
     """
     Applicant registration view.

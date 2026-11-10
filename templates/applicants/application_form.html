@@ -1,0 +1,745 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}New Fire NOC Application | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:dashboard' %}">Dashboard</a></li>
+            <li class="breadcrumb-item active" aria-current="page">New Application</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- =========================================================
+             Left: Sticky Progress / Section Navigator
+             ========================================================= -->
+        <div class="col-lg-3 d-none d-lg-block">
+            <div class="app-form-progress-card shadow-sm">
+                <div class="app-form-progress-header">
+                    <i class="bi bi-fire text-danger me-2"></i>
+                    <span class="fw-bold text-white">Application Sections</span>
+                </div>
+                <nav class="p-3" id="formSectionNav">
+                    <a href="#section-a" class="app-form-nav-step active" id="nav-a">
+                        <span class="app-form-step-badge bg-danger text-white">A</span>
+                        <span class="ms-2">Applicant Information</span>
+                    </a>
+                    <a href="#section-b" class="app-form-nav-step" id="nav-b">
+                        <span class="app-form-step-badge bg-secondary text-white">B</span>
+                        <span class="ms-2">Building Information</span>
+                    </a>
+                    <a href="#section-c" class="app-form-nav-step" id="nav-c">
+                        <span class="app-form-step-badge bg-secondary text-white">C</span>
+                        <span class="ms-2">Application Details</span>
+                    </a>
+                </nav>
+
+                <div class="p-3 border-top">
+                    <div class="small text-muted mb-2">
+                        <i class="bi bi-info-circle text-primary me-1"></i>
+                        Fields marked <span class="text-danger fw-bold">*</span> are required.
+                    </div>
+                    <div class="small text-muted">
+                        <i class="bi bi-lock text-secondary me-1"></i>
+                        Greyed fields are pre-filled from your profile.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Back to Dashboard -->
+            <a href="{% url 'applicants:dashboard' %}" class="btn btn-outline-secondary w-100 mt-3">
+                <i class="bi bi-arrow-left me-2"></i>Back to Dashboard
+            </a>
+        </div>
+
+        <!-- =========================================================
+             Right: Form
+             ========================================================= -->
+        <div class="col-lg-9">
+            <!-- Page Header Banner -->
+            <div class="app-form-banner shadow-sm mb-4">
+                <div class="row align-items-center">
+                    <div class="col">
+                        <span class="badge bg-danger mb-2 px-3 py-1 text-uppercase fw-semibold">
+                            <i class="bi bi-file-earmark-plus me-1"></i>New Application
+                        </span>
+                        <h1 class="h3 fw-bold text-white mb-1">Fire NOC Application Form</h1>
+                        <p class="text-white-50 mb-0 small">
+                            Fill in all three sections accurately. You may save as a draft at any time.
+                        </p>
+                    </div>
+                    <div class="col-auto d-none d-sm-block">
+                        <div class="app-form-ref-badge">
+                            <small class="text-white-50 d-block">Application Ref.</small>
+                            <span class="text-white fw-bold">DRAFT — Pending Submission</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mobile section links -->
+            <div class="d-flex d-lg-none gap-2 mb-3 flex-wrap">
+                <a href="#section-a" class="btn btn-sm btn-danger">A — Applicant</a>
+                <a href="#section-b" class="btn btn-sm btn-outline-secondary">B — Building</a>
+                <a href="#section-c" class="btn btn-sm btn-outline-secondary">C — Details</a>
+                <a href="{% url 'applicants:dashboard' %}" class="btn btn-sm btn-outline-dark ms-auto">
+                    <i class="bi bi-arrow-left me-1"></i>Dashboard
+                </a>
+            </div>
+
+            <form id="nocApplicationForm" novalidate>
+                {% csrf_token %}
+
+                <!-- =================================================
+                     SECTION A — Applicant Information
+                     ================================================= -->
+                <div class="card border-0 shadow-sm mb-4" id="section-a">
+                    <div class="card-header app-form-section-header">
+                        <div class="d-flex align-items-center">
+                            <span class="app-form-section-badge bg-danger text-white me-3">A</span>
+                            <div>
+                                <h5 class="fw-bold mb-0">Applicant Information</h5>
+                                <small class="text-muted">Pre-filled from your registered profile</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="alert alert-light border small text-muted mb-4">
+                            <i class="bi bi-lock text-secondary me-2"></i>
+                            Your personal details have been pre-filled from your registered profile. Contact support if any information is incorrect.
+                        </div>
+                        <div class="row g-3">
+                            <!-- Full Name -->
+                            <div class="col-md-6">
+                                <label for="id_full_name" class="form-label fw-semibold">
+                                    Full Name <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0">
+                                        <i class="bi bi-person text-muted"></i>
+                                    </span>
+                                    <input
+                                        type="text"
+                                        class="form-control border-start-0 bg-light"
+                                        id="id_full_name"
+                                        name="full_name"
+                                        value="{{ prefill.full_name }}"
+                                        readonly
+                                        required
+                                        aria-describedby="full_name_help"
+                                    >
+                                </div>
+                                <div id="full_name_help" class="form-text">
+                                    <i class="bi bi-lock-fill me-1"></i>Read-only — from your profile.
+                                </div>
+                            </div>
+
+                            <!-- Email Address -->
+                            <div class="col-md-6">
+                                <label for="id_email" class="form-label fw-semibold">
+                                    Email Address <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-light border-end-0">
+                                        <i class="bi bi-envelope text-muted"></i>
+                                    </span>
+                                    <input
+                                        type="email"
+                                        class="form-control border-start-0 bg-light"
+                                        id="id_email"
+                                        name="email"
+                                        value="{{ prefill.email }}"
+                                        readonly
+                                        required
+                                    >
+                                </div>
+                                <div class="form-text">
+                                    <i class="bi bi-lock-fill me-1"></i>Read-only — from your profile.
+                                </div>
+                            </div>
+
+                            <!-- Mobile Number -->
+                            <div class="col-md-6">
+                                <label for="id_mobile" class="form-label fw-semibold">
+                                    Mobile Number <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-phone text-muted"></i>
+                                    </span>
+                                    <span class="input-group-text bg-white border-start-0 border-end-0 text-muted px-2">+91</span>
+                                    <input
+                                        type="tel"
+                                        class="form-control border-start-0"
+                                        id="id_mobile"
+                                        name="mobile_number"
+                                        placeholder="e.g. 9876543210"
+                                        pattern="[0-9]{10}"
+                                        maxlength="10"
+                                        required
+                                        aria-describedby="mobile_help"
+                                    >
+                                </div>
+                                <div id="mobile_help" class="form-text">Enter your 10-digit registered mobile number.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- =================================================
+                     SECTION B — Building Information
+                     ================================================= -->
+                <div class="card border-0 shadow-sm mb-4" id="section-b">
+                    <div class="card-header app-form-section-header">
+                        <div class="d-flex align-items-center">
+                            <span class="app-form-section-badge bg-primary text-white me-3">B</span>
+                            <div>
+                                <h5 class="fw-bold mb-0">Building Information</h5>
+                                <small class="text-muted">Provide accurate details about the building requiring NOC</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="row g-3">
+                            <!-- Building Name -->
+                            <div class="col-md-6">
+                                <label for="id_building_name" class="form-label fw-semibold">
+                                    Building / Premises Name <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-building text-muted"></i>
+                                    </span>
+                                    <input
+                                        type="text"
+                                        class="form-control border-start-0"
+                                        id="id_building_name"
+                                        name="building_name"
+                                        placeholder="e.g. Green Heights Commercial Complex"
+                                        maxlength="200"
+                                        required
+                                    >
+                                </div>
+                            </div>
+
+                            <!-- Building Type -->
+                            <div class="col-md-6">
+                                <label for="id_building_type" class="form-label fw-semibold">
+                                    Building Type <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-tags text-muted"></i>
+                                    </span>
+                                    <select class="form-select border-start-0" id="id_building_type" name="building_type" required>
+                                        <option value="" disabled selected>— Select Building Type —</option>
+                                        <option value="RESIDENTIAL">Residential</option>
+                                        <option value="COMMERCIAL">Commercial</option>
+                                        <option value="INDUSTRIAL">Industrial</option>
+                                        <option value="EDUCATIONAL">Educational Institution</option>
+                                        <option value="HOSPITAL">Hospital</option>
+                                        <option value="HOTEL">Hotel</option>
+                                        <option value="OTHER">Other</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Building Address -->
+                            <div class="col-12">
+                                <label for="id_building_address" class="form-label fw-semibold">
+                                    Building Address <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-geo-alt text-muted"></i>
+                                    </span>
+                                    <textarea
+                                        class="form-control border-start-0"
+                                        id="id_building_address"
+                                        name="building_address"
+                                        rows="2"
+                                        placeholder="Door/Plot No., Street Name, Locality / Area"
+                                        maxlength="500"
+                                        required
+                                    ></textarea>
+                                </div>
+                            </div>
+
+                            <!-- City -->
+                            <div class="col-md-4">
+                                <label for="id_city" class="form-label fw-semibold">
+                                    City / Town <span class="text-danger">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    class="form-control"
+                                    id="id_city"
+                                    name="city"
+                                    placeholder="e.g. Kolkata"
+                                    maxlength="100"
+                                    required
+                                >
+                            </div>
+
+                            <!-- State -->
+                            <div class="col-md-4">
+                                <label for="id_state" class="form-label fw-semibold">
+                                    State <span class="text-danger">*</span>
+                                </label>
+                                <select class="form-select" id="id_state" name="state" required>
+                                    <option value="" disabled selected>— Select State —</option>
+                                    <option>Andhra Pradesh</option>
+                                    <option>Arunachal Pradesh</option>
+                                    <option>Assam</option>
+                                    <option>Bihar</option>
+                                    <option>Chhattisgarh</option>
+                                    <option>Goa</option>
+                                    <option>Gujarat</option>
+                                    <option>Haryana</option>
+                                    <option>Himachal Pradesh</option>
+                                    <option>Jharkhand</option>
+                                    <option>Karnataka</option>
+                                    <option>Kerala</option>
+                                    <option>Madhya Pradesh</option>
+                                    <option>Maharashtra</option>
+                                    <option>Manipur</option>
+                                    <option>Meghalaya</option>
+                                    <option>Mizoram</option>
+                                    <option>Nagaland</option>
+                                    <option>Odisha</option>
+                                    <option>Punjab</option>
+                                    <option>Rajasthan</option>
+                                    <option>Sikkim</option>
+                                    <option>Tamil Nadu</option>
+                                    <option>Telangana</option>
+                                    <option>Tripura</option>
+                                    <option>Uttar Pradesh</option>
+                                    <option>Uttarakhand</option>
+                                    <option>West Bengal</option>
+                                    <option>Andaman and Nicobar Islands</option>
+                                    <option>Chandigarh</option>
+                                    <option>Dadra and Nagar Haveli and Daman and Diu</option>
+                                    <option>Delhi</option>
+                                    <option>Jammu and Kashmir</option>
+                                    <option>Ladakh</option>
+                                    <option>Lakshadweep</option>
+                                    <option>Puducherry</option>
+                                </select>
+                            </div>
+
+                            <!-- PIN Code -->
+                            <div class="col-md-4">
+                                <label for="id_pin_code" class="form-label fw-semibold">
+                                    PIN Code <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-mailbox text-muted"></i>
+                                    </span>
+                                    <input
+                                        type="text"
+                                        class="form-control border-start-0"
+                                        id="id_pin_code"
+                                        name="pin_code"
+                                        placeholder="6-digit PIN"
+                                        pattern="[0-9]{6}"
+                                        minlength="6"
+                                        maxlength="6"
+                                        required
+                                        aria-describedby="pin_help"
+                                    >
+                                </div>
+                                <div id="pin_help" class="form-text">Enter a valid 6-digit PIN code.</div>
+                            </div>
+
+                            <!-- Number of Floors -->
+                            <div class="col-md-4">
+                                <label for="id_num_floors" class="form-label fw-semibold">
+                                    Number of Floors <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-layers text-muted"></i>
+                                    </span>
+                                    <input
+                                        type="number"
+                                        class="form-control border-start-0"
+                                        id="id_num_floors"
+                                        name="num_floors"
+                                        placeholder="e.g. 5"
+                                        min="1"
+                                        max="200"
+                                        required
+                                    >
+                                </div>
+                                <div class="form-text">Include basement floors if applicable.</div>
+                            </div>
+
+                            <!-- Built-up Area -->
+                            <div class="col-md-4">
+                                <label for="id_builtup_area" class="form-label fw-semibold">
+                                    Built-up Area (sq. m) <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-aspect-ratio text-muted"></i>
+                                    </span>
+                                    <input
+                                        type="number"
+                                        class="form-control border-start-0"
+                                        id="id_builtup_area"
+                                        name="builtup_area"
+                                        placeholder="e.g. 1200"
+                                        min="1"
+                                        max="9999999"
+                                        step="0.01"
+                                        required
+                                    >
+                                    <span class="input-group-text bg-white">sq. m</span>
+                                </div>
+                                <div class="form-text">Total built-up area across all floors.</div>
+                            </div>
+
+                            <!-- Year of Construction -->
+                            <div class="col-md-4">
+                                <label for="id_year_construction" class="form-label fw-semibold">
+                                    Year of Construction <span class="text-danger">*</span>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-calendar text-muted"></i>
+                                    </span>
+                                    <input
+                                        type="number"
+                                        class="form-control border-start-0"
+                                        id="id_year_construction"
+                                        name="year_construction"
+                                        placeholder="e.g. 2010"
+                                        min="1900"
+                                        max="2026"
+                                        required
+                                    >
+                                </div>
+                                <div class="form-text">Year the building was originally constructed.</div>
+                            </div>
+
+                            <!-- Occupancy Type -->
+                            <div class="col-md-6">
+                                <label for="id_occupancy_type" class="form-label fw-semibold">
+                                    Occupancy Type <span class="text-danger">*</span>
+                                    <i class="bi bi-question-circle text-muted ms-1" data-bs-toggle="tooltip"
+                                       title="Occupancy type as per National Building Code (NBC) of India"></i>
+                                </label>
+                                <div class="input-group">
+                                    <span class="input-group-text bg-white border-end-0">
+                                        <i class="bi bi-people text-muted"></i>
+                                    </span>
+                                    <select class="form-select border-start-0" id="id_occupancy_type" name="occupancy_type" required>
+                                        <option value="" disabled selected>— Select Occupancy Type (NBC) —</option>
+                                        <option value="RESIDENTIAL">Residential</option>
+                                        <option value="BUSINESS">Business</option>
+                                        <option value="ASSEMBLY">Assembly</option>
+                                        <option value="INDUSTRIAL">Industrial</option>
+                                        <option value="STORAGE">Storage</option>
+                                        <option value="EDUCATIONAL">Educational</option>
+                                        <option value="HEALTHCARE">Healthcare</option>
+                                        <option value="MIXED_USE">Mixed Use</option>
+                                    </select>
+                                </div>
+                                <div class="form-text">As classified under National Building Code of India.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- =================================================
+                     SECTION C — Application Details
+                     ================================================= -->
+                <div class="card border-0 shadow-sm mb-4" id="section-c">
+                    <div class="card-header app-form-section-header">
+                        <div class="d-flex align-items-center">
+                            <span class="app-form-section-badge bg-success text-white me-3">C</span>
+                            <div>
+                                <h5 class="fw-bold mb-0">Application Details</h5>
+                                <small class="text-muted">Specify the type and purpose of this NOC application</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body p-4">
+                        <div class="row g-3">
+                            <!-- Application Type -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold">
+                                    Application Type <span class="text-danger">*</span>
+                                </label>
+                                <div class="d-flex flex-column gap-2">
+                                    <div class="form-check app-form-radio-card">
+                                        <input class="form-check-input" type="radio" name="application_type"
+                                               id="app_type_new" value="NEW_NOC" required>
+                                        <label class="form-check-label d-flex align-items-start gap-2 w-100 cursor-pointer" for="app_type_new">
+                                            <div>
+                                                <span class="fw-semibold d-block">New NOC</span>
+                                                <small class="text-muted">First-time Fire NOC application for a building</small>
+                                            </div>
+                                        </label>
+                                    </div>
+                                    <div class="form-check app-form-radio-card">
+                                        <input class="form-check-input" type="radio" name="application_type"
+                                               id="app_type_renewal" value="RENEWAL">
+                                        <label class="form-check-label d-flex align-items-start gap-2 w-100 cursor-pointer" for="app_type_renewal">
+                                            <div>
+                                                <span class="fw-semibold d-block">NOC Renewal</span>
+                                                <small class="text-muted">Renew an existing, previously issued Fire NOC</small>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Purpose of Application -->
+                            <div class="col-12">
+                                <label for="id_purpose" class="form-label fw-semibold">
+                                    Purpose of Application <span class="text-danger">*</span>
+                                </label>
+                                <textarea
+                                    class="form-control"
+                                    id="id_purpose"
+                                    name="purpose"
+                                    rows="3"
+                                    placeholder="Briefly describe why you are applying for a Fire NOC (e.g., 'Required for occupancy certificate from local municipality', 'Business license renewal', etc.)"
+                                    maxlength="1000"
+                                    required
+                                    aria-describedby="purpose_help"
+                                ></textarea>
+                                <div id="purpose_help" class="form-text d-flex justify-content-between">
+                                    <span>Provide a clear and accurate purpose. Max 1000 characters.</span>
+                                    <span id="purpose_char_count" class="text-muted">0 / 1000</span>
+                                </div>
+                            </div>
+
+                            <!-- Additional Remarks -->
+                            <div class="col-12">
+                                <label for="id_remarks" class="form-label fw-semibold">
+                                    Additional Remarks
+                                    <span class="badge bg-secondary-subtle text-secondary border ms-1 fw-normal" style="font-size:0.7rem;">Optional</span>
+                                </label>
+                                <textarea
+                                    class="form-control"
+                                    id="id_remarks"
+                                    name="remarks"
+                                    rows="3"
+                                    placeholder="Any additional information the fire department should know — e.g., recent structural modifications, existing NOC reference number for renewal, previous inspection dates, etc."
+                                    maxlength="2000"
+                                    aria-describedby="remarks_help"
+                                ></textarea>
+                                <div id="remarks_help" class="form-text d-flex justify-content-between">
+                                    <span>Optional. Max 2000 characters.</span>
+                                    <span id="remarks_char_count" class="text-muted">0 / 2000</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- =================================================
+                     Declaration & Submission Row
+                     ================================================= -->
+                <div class="card border-0 shadow-sm mb-4">
+                    <div class="card-body p-4">
+                        <!-- Declaration -->
+                        <div class="form-check mb-4">
+                            <input class="form-check-input" type="checkbox" id="id_declaration" name="declaration" required>
+                            <label class="form-check-label small" for="id_declaration">
+                                I hereby declare that all information provided in this application is true, complete, and
+                                accurate to the best of my knowledge. I understand that providing false information may
+                                result in rejection of this application and legal action under applicable laws.
+                                <span class="text-danger">*</span>
+                            </label>
+                        </div>
+
+                        <!-- Buttons -->
+                        <div class="d-flex flex-wrap gap-3 align-items-center justify-content-between">
+                            <div class="d-flex flex-wrap gap-2">
+                                <!-- Save as Draft placeholder -->
+                                <button type="button" class="btn btn-outline-secondary px-4"
+                                        data-bs-toggle="tooltip"
+                                        title="Draft saving will be enabled in an upcoming release"
+                                        disabled>
+                                    <i class="bi bi-floppy me-2"></i>Save as Draft
+                                </button>
+                                <!-- Submit placeholder -->
+                                <button type="button" class="btn btn-danger px-5"
+                                        onclick="handleFormSubmit(event)"
+                                        data-bs-toggle="tooltip"
+                                        title="Submission will be enabled after document upload is implemented">
+                                    <i class="bi bi-send me-2"></i>Submit Application
+                                </button>
+                            </div>
+                            <a href="{% url 'applicants:dashboard' %}" class="btn btn-link text-muted text-decoration-none">
+                                <i class="bi bi-x-lg me-1"></i>Cancel
+                            </a>
+                        </div>
+
+                        <!-- Submission note -->
+                        <div class="alert alert-light border small text-muted mt-3 mb-0">
+                            <i class="bi bi-info-circle text-primary me-2"></i>
+                            <strong>Note:</strong> Application submission and document upload functionality will be enabled in the next commit. Currently this form is a UI preview only.
+                        </div>
+                    </div>
+                </div>
+
+            </form>
+        </div><!-- /col-lg-9 -->
+    </div><!-- /row -->
+</div><!-- /container-fluid -->
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+
+    /* -------------------------------------------------------
+       1. Character counters for textareas
+    ------------------------------------------------------- */
+    function wireCharCounter(textareaId, counterId, max) {
+        const ta = document.getElementById(textareaId);
+        const counter = document.getElementById(counterId);
+        if (!ta || !counter) return;
+        const update = () => {
+            const len = ta.value.length;
+            counter.textContent = len + ' / ' + max;
+            counter.classList.toggle('text-danger', len >= max);
+        };
+        ta.addEventListener('input', update);
+        update();
+    }
+    wireCharCounter('id_purpose', 'purpose_char_count', 1000);
+    wireCharCounter('id_remarks', 'remarks_char_count', 2000);
+
+    /* -------------------------------------------------------
+       2. Mobile number — digits only
+    ------------------------------------------------------- */
+    const mobileInput = document.getElementById('id_mobile');
+    if (mobileInput) {
+        mobileInput.addEventListener('input', function () {
+            this.value = this.value.replace(/\D/g, '').slice(0, 10);
+        });
+    }
+
+    /* -------------------------------------------------------
+       3. PIN code — digits only
+    ------------------------------------------------------- */
+    const pinInput = document.getElementById('id_pin_code');
+    if (pinInput) {
+        pinInput.addEventListener('input', function () {
+            this.value = this.value.replace(/\D/g, '').slice(0, 6);
+        });
+    }
+
+    /* -------------------------------------------------------
+       4. Submit button — client-side validation feedback
+    ------------------------------------------------------- */
+    window.handleFormSubmit = function (e) {
+        const form = document.getElementById('nocApplicationForm');
+        if (!form.checkValidity()) {
+            e.preventDefault();
+            form.classList.add('was-validated');
+            // Scroll to first invalid field
+            const firstInvalid = form.querySelector(':invalid');
+            if (firstInvalid) {
+                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                firstInvalid.focus();
+            }
+        } else {
+            // POST submission not implemented yet — show info toast
+            e.preventDefault();
+            showNotImplementedToast();
+        }
+    };
+
+    function showNotImplementedToast() {
+        const existing = document.getElementById('nocSubmitToast');
+        if (existing) existing.remove();
+        const toast = document.createElement('div');
+        toast.id = 'nocSubmitToast';
+        toast.className = 'toast align-items-center text-bg-primary border-0 position-fixed bottom-0 end-0 m-3';
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'assertive');
+        toast.style.zIndex = 2000;
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    <strong>Submission not yet enabled.</strong> Database integration will be added in the next commit.
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>`;
+        document.body.appendChild(toast);
+        const bsToast = new bootstrap.Toast(toast, { delay: 5000 });
+        bsToast.show();
+    }
+
+    /* -------------------------------------------------------
+       5. Sticky section nav — highlight on scroll
+    ------------------------------------------------------- */
+    const sections = [
+        { id: 'section-a', nav: 'nav-a', badge: 'A' },
+        { id: 'section-b', nav: 'nav-b', badge: 'B' },
+        { id: 'section-c', nav: 'nav-c', badge: 'C' },
+    ];
+    const colorMap = { 'nav-a': 'bg-danger', 'nav-b': 'bg-primary', 'nav-c': 'bg-success' };
+
+    function onScroll() {
+        let current = sections[0].nav;
+        sections.forEach(({ id, nav }) => {
+            const el = document.getElementById(id);
+            if (el && window.scrollY >= el.offsetTop - 160) current = nav;
+        });
+        sections.forEach(({ nav }) => {
+            const link = document.getElementById(nav);
+            if (!link) return;
+            const badge = link.querySelector('.app-form-step-badge');
+            if (nav === current) {
+                link.classList.add('active');
+                if (badge) {
+                    badge.className = 'app-form-step-badge text-white ' + (colorMap[nav] || 'bg-secondary');
+                }
+            } else {
+                link.classList.remove('active');
+                if (badge) badge.className = 'app-form-step-badge bg-secondary text-white';
+            }
+        });
+    }
+    document.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    /* -------------------------------------------------------
+       6. Bootstrap tooltip init
+    ------------------------------------------------------- */
+    document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+        new bootstrap.Tooltip(el);
+    });
+
+    /* -------------------------------------------------------
+       7. Radio card — visual selection highlight
+    ------------------------------------------------------- */
+    document.querySelectorAll('.app-form-radio-card input[type="radio"]').forEach(radio => {
+        radio.addEventListener('change', function () {
+            document.querySelectorAll('.app-form-radio-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            this.closest('.app-form-radio-card').classList.add('selected');
+        });
+    });
+
+})();
+</script>
+{% endblock %}
+

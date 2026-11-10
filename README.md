@@ -85,10 +85,11 @@ FireNOC-Management-System/
 │   ├── base.html           # Common Bootstrap master layout
 │   ├── home.html           # Landing page extending base.html
 │   └── applicants/
-│       ├── applicant_home.html # Applicant portal landing page
-│       ├── dashboard.html      # Applicant dashboard with sidebar & statistics
-│       ├── register.html       # Applicant registration page
-│       └── login.html          # Applicant login page
+│       ├── applicant_home.html   # Applicant portal landing page
+│       ├── dashboard.html        # Applicant dashboard with sidebar & statistics
+│       ├── application_form.html # Multi-section Fire NOC application form UI
+│       ├── register.html         # Applicant registration page
+│       └── login.html            # Applicant login page
 ├── static/                 # Static assets (CSS, JS, images)
 │   ├── css/
 │   │   └── style.css       # Project stylesheet

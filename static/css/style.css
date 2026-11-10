@@ -426,3 +426,144 @@ main {
     padding: 2rem;
     border-left: 4px solid var(--accent-red);
 }
+
+
+/* ==========================================================================
+   Fire NOC Application Form Styling
+   ========================================================================== */
+
+/* Page banner header */
+.app-form-banner {
+    background: linear-gradient(135deg, var(--gov-navy-primary) 0%, var(--gov-navy-surface) 100%);
+    color: #ffffff;
+    border-radius: 0.75rem;
+    padding: 1.75rem 2rem;
+    border-left: 4px solid var(--accent-red);
+}
+
+.app-form-ref-badge {
+    background-color: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    text-align: right;
+}
+
+/* Sticky left progress navigator */
+.app-form-progress-card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: 0 0.25rem 0.75rem rgba(11, 37, 69, 0.05);
+    position: sticky;
+    top: 80px;
+}
+
+.app-form-progress-header {
+    background: linear-gradient(135deg, var(--gov-navy-primary) 0%, var(--gov-navy-dark) 100%);
+    color: #ffffff;
+    padding: 1rem 1.25rem;
+    border-bottom: 3px solid var(--accent-red);
+    display: flex;
+    align-items: center;
+}
+
+.app-form-nav-step {
+    display: flex;
+    align-items: center;
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.375rem;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.app-form-nav-step:hover {
+    background-color: #f1f5f9;
+    color: var(--gov-navy-primary);
+}
+
+.app-form-nav-step.active {
+    background-color: rgba(11, 37, 69, 0.07);
+    font-weight: 600;
+}
+
+.app-form-step-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    transition: background-color 0.2s ease;
+}
+
+/* Section header inside form cards */
+.app-form-section-header {
+    background-color: #f8fafc;
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 1rem 1.5rem;
+}
+
+.app-form-section-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    font-size: 0.9rem;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+/* Application type radio card */
+.app-form-radio-card {
+    border: 1px solid var(--border-subtle);
+    border-radius: 0.5rem;
+    padding: 0.9rem 1.1rem;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+    margin-bottom: 0;
+}
+
+.app-form-radio-card:hover {
+    border-color: var(--gov-navy-light);
+    background-color: #f8fafc;
+}
+
+.app-form-radio-card.selected {
+    border-color: var(--gov-navy-primary);
+    background-color: rgba(11, 37, 69, 0.04);
+}
+
+.app-form-radio-card .form-check-input {
+    margin-top: 0.1rem;
+    flex-shrink: 0;
+}
+
+/* Input group style consistency */
+.app-form-banner + .row .form-control:focus,
+.app-form-banner + .row .form-select:focus {
+    border-color: var(--gov-navy-light);
+    box-shadow: 0 0 0 0.2rem rgba(11, 37, 69, 0.15);
+}
+
+.form-control:focus,
+.form-select:focus {
+    border-color: var(--gov-navy-light);
+    box-shadow: 0 0 0 0.2rem rgba(11, 37, 69, 0.12);
+}
+
+/* Read-only pre-filled field */
+.form-control[readonly] {
+    color: var(--text-muted);
+    cursor: not-allowed;
+}

@@ -517,3 +517,100 @@ class ApplicantAuthenticationTests(TestCase):
             self.assertContains(response, 'NOC-2026-002')
             self.assertContains(response, 'City Center Tower')
             self.assertContains(response, 'Pending Review')
+
+
+
+class ApplicationFormViewTests(TestCase):
+    """
+    Tests for the multi-section Fire NOC Application Form UI.
+    Verifies access control, pre-fill behaviour, and section rendering.
+    """
+
+    def setUp(self):
+        self.form_url = reverse('applicants:application_new')
+        self.login_url = reverse('login')
+        self.user = User.objects.create_user(
+            username='applicant@firenoc.gov.in',
+            email='applicant@firenoc.gov.in',
+            password='ValidPassword#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+
+    def test_unauthenticated_user_redirected_to_login(self):
+        """Unauthenticated access to /applicant/applications/new/ redirects to /login/."""
+        response = self.client.get(self.form_url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={self.form_url}")
+
+    def test_authenticated_user_can_access_form(self):
+        """Logged-in applicant receives HTTP 200 and the form template is rendered."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.form_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/application_form.html')
+
+    def test_applicant_details_are_prefilled(self):
+        """Full name and email are pre-filled from the authenticated user's profile."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.form_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['prefill']['full_name'], 'Ankan Mondal')
+        self.assertEqual(response.context['prefill']['email'], 'applicant@firenoc.gov.in')
+        self.assertContains(response, 'value="Ankan Mondal"')
+        self.assertContains(response, 'value="applicant@firenoc.gov.in"')
+
+    def test_all_form_sections_are_rendered(self):
+        """All three form sections A, B, C are present on the page."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.form_url)
+        # Section A
+        self.assertContains(response, 'Applicant Information')
+        self.assertContains(response, 'id_full_name')
+        self.assertContains(response, 'id_email')
+        self.assertContains(response, 'id_mobile')
+        # Section B
+        self.assertContains(response, 'Building Information')
+        self.assertContains(response, 'id_building_name')
+        self.assertContains(response, 'id_building_type')
+        self.assertContains(response, 'id_building_address')
+        self.assertContains(response, 'id_city')
+        self.assertContains(response, 'id_state')
+        self.assertContains(response, 'id_pin_code')
+        self.assertContains(response, 'id_num_floors')
+        self.assertContains(response, 'id_builtup_area')
+        self.assertContains(response, 'id_year_construction')
+        self.assertContains(response, 'id_occupancy_type')
+        # Section C
+        self.assertContains(response, 'Application Details')
+        self.assertContains(response, 'id_purpose')
+        self.assertContains(response, 'id_remarks')
+        self.assertContains(response, 'app_type_new')
+        self.assertContains(response, 'app_type_renewal')
+
+    def test_form_contains_required_ui_elements(self):
+        """UI elements such as buttons, breadcrumb, and declaration are present."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.form_url)
+        self.assertContains(response, 'Save as Draft')
+        self.assertContains(response, 'Submit Application')
+        self.assertContains(response, 'Back to Dashboard')
+        self.assertContains(response, 'id_declaration')
+        self.assertContains(response, 'New Application')     # breadcrumb
+        self.assertContains(response, 'Fire NOC Application Form')
+
+    def test_form_contains_all_dropdown_options(self):
+        """Building Type and Occupancy Type dropdowns contain the specified options."""
+        self.client.force_login(self.user)
+        response = self.client.get(self.form_url)
+        # Building Type
+        for opt in ['Residential', 'Commercial', 'Industrial',
+                    'Educational Institution', 'Hospital', 'Hotel', 'Other']:
+            self.assertContains(response, opt)
+        # Occupancy Type
+        for opt in ['Residential', 'Business', 'Assembly', 'Industrial',
+                    'Storage', 'Educational', 'Healthcare', 'Mixed Use']:
+            self.assertContains(response, opt)
+        # Application Type
+        self.assertContains(response, 'New NOC')
+        self.assertContains(response, 'NOC Renewal')
