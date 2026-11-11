@@ -89,19 +89,34 @@
                         <span class="text-white-50 small d-none d-md-inline me-1">
                             <i class="bi bi-person-circle text-warning me-1"></i>{{ user.first_name|default:user.username }}
                         </span>
+                        {% if 'officer' in request.path %}
+                        <form method="post" action="{% url 'officers:logout' %}" class="d-inline m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-outline-light btn-sm px-3 auth-btn">
+                                <i class="bi bi-box-arrow-right me-1"></i>Logout
+                            </button>
+                        </form>
+                        {% else %}
                         <form method="post" action="{% url 'logout' %}" class="d-inline m-0 p-0">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-outline-light btn-sm px-3 auth-btn">
                                 <i class="bi bi-box-arrow-right me-1"></i>Logout
                             </button>
                         </form>
+                        {% endif %}
                     {% else %}
+                        {% if 'officer' in request.path %}
+                        <a href="{% url 'officers:login' %}" class="btn btn-warning btn-sm px-3 auth-btn text-dark fw-bold">
+                            <i class="bi bi-shield-lock me-1"></i>Officer Login
+                        </a>
+                        {% else %}
                         <a href="{% url 'login' %}" class="btn btn-outline-light btn-sm px-3 auth-btn">
                             <i class="bi bi-box-arrow-in-right me-1"></i>Login
                         </a>
                         <a href="{% url 'register' %}" class="btn btn-danger btn-sm px-3 auth-btn">
                             <i class="bi bi-person-plus me-1"></i>Register
                         </a>
+                        {% endif %}
                     {% endif %}
                 </div>
             </div>

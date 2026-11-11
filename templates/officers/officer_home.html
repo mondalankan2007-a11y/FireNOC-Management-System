@@ -1,117 +1,326 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Fire Officer Module | FireNOC Management System{% endblock %}
+{% block title %}Officer Dashboard | FireNOC Management System{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-lg-10">
-        <!-- Breadcrumb Navigation -->
-        <nav aria-label="breadcrumb" class="mb-4">
-            <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
-                <li class="breadcrumb-item active" aria-current="page">Fire Officer Module</li>
-            </ol>
-        </nav>
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'officers:officer_home' %}">Officer Portal</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Dashboard</li>
+        </ol>
+    </nav>
 
-        <!-- Main Officer Module Header Card -->
-        <div class="card shadow-sm border-0 mb-4">
-            <div class="card-body p-4 p-md-5">
-                <div class="d-flex align-items-center mb-3">
-                    <div class="bg-warning text-dark rounded-circle p-3 d-inline-flex me-3">
-                        <i class="bi bi-shield-check fs-3"></i>
+    <div class="row g-4">
+        <!-- Sidebar Navigation (Column 1) -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <!-- Officer Profile Header -->
+                <div class="dashboard-user-profile text-center" style="background: linear-gradient(135deg, #07172b 0%, #0b2545 100%); border-bottom: 3px solid #f59e0b;">
+                    <div class="dashboard-user-avatar mx-auto mb-2" style="background-color: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.5); color: #fbbf24;">
+                        <i class="bi bi-shield-check"></i>
                     </div>
-                    <div>
-                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-1 mb-1">
-                            Fire Officer Module
+                    <h5 class="fw-bold mb-0 text-white">
+                        {{ officer.get_full_name|default:officer.username }}
+                    </h5>
+                    <small class="text-white-50 d-block px-2 text-truncate">
+                        {{ profile.designation|default:"Fire Safety Inspection Officer" }}
+                    </small>
+                    <div class="mt-2">
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1 small">
+                            <i class="bi bi-person-badge me-1"></i>ID: {{ profile.officer_id|default:officer.username }}
                         </span>
-                        <h1 class="h2 fw-bold text-dark mb-0">Fire Officer Module</h1>
                     </div>
                 </div>
 
-                <p class="lead text-muted mb-4">
-                    Welcome to the Fire Officer &amp; Inspection Portal. This module is used for application review, document verification, inspection, deficiency management and approval workflow.
+                <!-- Navigation Links List -->
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <!-- 1. Dashboard (Active & Functional) -->
+                        <a class="nav-link active" href="{% url 'officers:officer_home' %}">
+                            <i class="bi bi-grid-1x2-fill me-2"></i>Dashboard
+                        </a>
+
+                        <!-- 2. Applications (Placeholder for future commit) -->
+                        <a class="nav-link" href="#applications" data-bs-toggle="tooltip" title="Application Review Queue (Commit 3)">
+                            <i class="bi bi-file-earmark-text me-2 text-primary"></i>Applications
+                            <span class="badge bg-secondary-subtle text-secondary border ms-auto small">Queue</span>
+                        </a>
+
+                        <!-- 3. Document Verification (Placeholder for future commit) -->
+                        <a class="nav-link" href="#document-verification" data-bs-toggle="tooltip" title="Document Verification Audit (Commit 4)">
+                            <i class="bi bi-file-earmark-check me-2 text-info"></i>Document Verification
+                        </a>
+
+                        <!-- 4. Inspections (Placeholder for future commit) -->
+                        <a class="nav-link" href="#inspections" data-bs-toggle="tooltip" title="Physical Site Inspections (Commit 5)">
+                            <i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections
+                        </a>
+
+                        <!-- 5. Deficiencies (Placeholder for future commit) -->
+                        <a class="nav-link" href="#deficiencies" data-bs-toggle="tooltip" title="Deficiency Logging & Rectification (Commit 6)">
+                            <i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies
+                        </a>
+
+                        <hr class="my-2 border-secondary-subtle">
+
+                        <!-- 6. Logout (Functional POST Request) -->
+                        <form method="post" action="{% url 'officers:logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Department Station Information Box -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi bi-shield-shaded text-danger fs-4 me-2"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Fire Inspection Station</h6>
+                </div>
+                <p class="small text-muted mb-2">
+                    Fire Safety Bhavan Headquarters, Central City.
                 </p>
-
-                <!-- Module Status / Coming Soon Section -->
-                <div class="p-3 bg-light rounded border mb-4">
-                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="badge bg-secondary px-3 py-2">
-                                <i class="bi bi-clock-history me-1"></i>Status: Foundation Initialized
-                            </span>
-                            <span class="badge bg-warning text-dark px-3 py-2">
-                                <i class="bi bi-tools me-1"></i>Coming Soon
-                            </span>
-                        </div>
-                        <small class="text-muted">
-                            <i class="bi bi-layers me-1"></i>Commit 1: Officer Module Architecture
-                        </small>
-                    </div>
-                    <hr class="my-3">
-                    <p class="small text-muted mb-0">
-                        <i class="bi bi-info-circle text-primary me-2"></i>
-                        <strong>Notice:</strong> The core Django structure for the Fire Officer module has been successfully initialized. Operational features including officer authentication, inspection scheduling, checklist audits, deficiency recording, and approval workflows will be implemented in subsequent commits.
-                    </p>
+                <div class="small fw-semibold text-dark mb-1">
+                    <i class="bi bi-telephone text-danger me-1"></i>Control Room: 101
                 </div>
-
-                <!-- Action Button Placeholders -->
-                <div class="d-flex flex-wrap gap-3">
-                    <button type="button" class="btn btn-warning btn-lg px-4" disabled>
-                        <i class="bi bi-clipboard2-check me-2"></i>Inspection Queue
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary btn-lg px-4" disabled>
-                        <i class="bi bi-file-earmark-check me-2"></i>Document Verification
-                    </button>
+                <div class="small fw-semibold text-dark">
+                    <i class="bi bi-headset text-danger me-1"></i>Helpline: 1800-11-FIRE
                 </div>
             </div>
-        </div>
+        </aside>
 
-        <!-- Planned Capabilities Cards -->
-        <div class="row g-3">
-            <div class="col-md-4">
-                <div class="card h-100 border-0 shadow-sm">
-                    <div class="card-body p-4">
-                        <div class="text-primary fs-3 mb-2">
-                            <i class="bi bi-file-earmark-ruled"></i>
-                        </div>
-                        <h5 class="fw-bold">1. Review &amp; Verification</h5>
-                        <p class="text-muted small mb-0">
-                            Scrutinize submitted building dimensions, architectural drawings, fire hydrant schemes, and applicant documents prior to site visit.
+        <!-- Main Dashboard Content (Column 2) -->
+        <main class="col-lg-9 col-md-8">
+            <!-- 1. Officer Welcome Header Banner -->
+            <div class="dashboard-welcome-banner shadow-sm mb-4" style="background: linear-gradient(135deg, #07172b 0%, #0b2545 100%); border-left: 4px solid #f59e0b;">
+                <div class="row align-items-center">
+                    <div class="col-lg-8 mb-3 mb-lg-0">
+                        <span class="badge bg-warning text-dark mb-2 px-3 py-1 text-uppercase fw-semibold">
+                            <i class="bi bi-shield-check me-1"></i>Department of Fire &amp; Emergency Services
+                        </span>
+                        <h1 class="h3 fw-bold text-white mb-2">
+                            Welcome, Officer {{ officer.first_name|default:officer.username }}!
+                        </h1>
+                        <p class="text-white-50 mb-0 lead fs-6">
+                            Fire Officer Inspection &amp; Clearance Portal. Review building clearance applications, verify submitted safety drawings, and record physical site inspection observations.
                         </p>
                     </div>
-                </div>
-            </div>
-
-            <div class="col-md-4">
-                <div class="card h-100 border-0 shadow-sm">
-                    <div class="card-body p-4">
-                        <div class="text-warning fs-3 mb-2">
-                            <i class="bi bi-shield-exclamation"></i>
+                    <div class="col-lg-4 text-lg-end">
+                        <div class="d-inline-flex align-items-center bg-white bg-opacity-10 border border-white border-opacity-25 rounded px-3 py-2 text-white">
+                            <i class="bi bi-broadcast text-success me-2 fs-5"></i>
+                            <div class="text-start">
+                                <small class="d-block text-white-50 lh-1">Duty Status</small>
+                                <strong class="small text-white">Active on Duty</strong>
+                            </div>
                         </div>
-                        <h5 class="fw-bold">2. Inspection &amp; Deficiencies</h5>
-                        <p class="text-muted small mb-0">
-                            Perform on-site compliance audits of extinguishers, alarm systems, smoke detectors, and issue deficiency notifications where required.
-                        </p>
                     </div>
                 </div>
             </div>
 
-            <div class="col-md-4">
-                <div class="card h-100 border-0 shadow-sm">
-                    <div class="card-body p-4">
-                        <div class="text-success fs-3 mb-2">
-                            <i class="bi bi-check-circle"></i>
+            <!-- 2. Officer Statistics Cards Section -->
+            <div class="row g-3 mb-4">
+                <!-- Card 1: Total Applications -->
+                <div class="col-xl-4 col-sm-6">
+                    <div class="dashboard-stat-card stat-navy h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Total Applications</small>
+                                <div class="dashboard-stat-number">{{ stats.total_applications }}</div>
+                                <small class="text-muted">Assigned to department</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-primary-subtle text-primary">
+                                <i class="bi bi-folder2-open"></i>
+                            </div>
                         </div>
-                        <h5 class="fw-bold">3. Approval Workflow</h5>
-                        <p class="text-muted small mb-0">
-                            Compile inspection observations, submit recommendations, and advance compliant applications for digital Fire NOC issuance.
-                        </p>
+                    </div>
+                </div>
+
+                <!-- Card 2: Pending Applications -->
+                <div class="col-xl-4 col-sm-6">
+                    <div class="dashboard-stat-card stat-amber h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Pending Applications</small>
+                                <div class="dashboard-stat-number text-warning-emphasis">{{ stats.pending_applications }}</div>
+                                <small class="text-muted">Awaiting initial review</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-warning-subtle text-warning">
+                                <i class="bi bi-hourglass-split"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 3: Applications Under Verification -->
+                <div class="col-xl-4 col-sm-6">
+                    <div class="dashboard-stat-card stat-navy h-100" style="border-left-color: #2563eb;">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Under Verification</small>
+                                <div class="dashboard-stat-number text-primary">{{ stats.applications_under_verification }}</div>
+                                <small class="text-muted">Document audit in progress</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-info-subtle text-info">
+                                <i class="bi bi-file-earmark-ruled"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 4: Scheduled Inspections -->
+                <div class="col-xl-6 col-sm-6">
+                    <div class="dashboard-stat-card stat-amber h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Scheduled Inspections</small>
+                                <div class="dashboard-stat-number text-warning-emphasis">{{ stats.scheduled_inspections }}</div>
+                                <small class="text-muted">Site visits assigned to officers</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-warning-subtle text-warning">
+                                <i class="bi bi-calendar-event"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 5: Completed Inspections -->
+                <div class="col-xl-6 col-sm-6">
+                    <div class="dashboard-stat-card stat-green h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Completed Inspections</small>
+                                <div class="dashboard-stat-number text-success">{{ stats.completed_inspections }}</div>
+                                <small class="text-muted">Checklists verified &amp; cleared</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-success-subtle text-success">
+                                <i class="bi bi-check2-circle"></i>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
+            <!-- 3. Pending Applications / Recent Applications Queue Section -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-inbox text-warning fs-5 me-2"></i>
+                        <h5 class="fw-bold mb-0 text-dark">Pending Applications</h5>
+                    </div>
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                        Officer Scrutiny Queue
+                    </span>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th scope="col" class="ps-3">Application ID</th>
+                                    <th scope="col">Building Details</th>
+                                    <th scope="col">Occupancy Type</th>
+                                    <th scope="col">Submission Date</th>
+                                    <th scope="col">Review Status</th>
+                                    <th scope="col" class="text-end pe-3">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if recent_applications %}
+                                    {% for app in recent_applications %}
+                                        <tr>
+                                            <td class="ps-3 fw-bold text-dark">{{ app.application_id|default:app.id }}</td>
+                                            <td>
+                                                <div class="fw-semibold">{{ app.building_name }}</div>
+                                                <small class="text-muted">{{ app.building_address|default:''|truncatechars:40 }}</small>
+                                            </td>
+                                            <td>
+                                                <span class="badge bg-light text-dark border">
+                                                    {{ app.occupancy_type|default:"Commercial" }}
+                                                </span>
+                                            </td>
+                                            <td>{{ app.submission_date|default:app.created_at|date:"d M Y" }}</td>
+                                            <td>
+                                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                                                    <i class="bi bi-hourglass-split me-1"></i>{{ app.get_status_display|default:app.status }}
+                                                </span>
+                                            </td>
+                                            <td class="text-end pe-3">
+                                                <a href="#review" class="btn btn-sm btn-outline-warning text-dark fw-semibold">
+                                                    Review
+                                                </a>
+                                            </td>
+                                        </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <!-- Empty State Row -->
+                                    <tr>
+                                        <td colspan="6" class="text-center py-5">
+                                            <div class="display-6 text-muted opacity-50 mb-3">
+                                                <i class="bi bi-inbox"></i>
+                                            </div>
+                                            <h5 class="fw-bold text-dark mb-2">No applications are currently awaiting officer review.</h5>
+                                            <p class="text-muted small mb-0 mx-auto" style="max-width: 520px;">
+                                                Applications submitted by building owners will appear here for desk scrutiny, document verification, and on-site inspection scheduling.
+                                            </p>
+                                        </td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Fire Officer Inspection Workflow Overview Card -->
+            <div class="card border-0 shadow-sm bg-light">
+                <div class="card-body p-4">
+                    <h6 class="fw-bold text-dark mb-2">
+                        <i class="bi bi-shield-check text-warning me-2"></i>Officer Inspection &amp; Compliance Protocol
+                    </h6>
+                    <div class="row g-3 small text-muted pt-2">
+                        <div class="col-md-3">
+                            <div class="bg-white p-3 rounded h-100 border">
+                                <strong class="text-dark d-block mb-1">
+                                    <i class="bi bi-file-earmark-text text-primary me-1"></i>1. Desk Audit
+                                </strong>
+                                Scrutinize building dimensions, occupant load calculations, and architectural blueprints.
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="bg-white p-3 rounded h-100 border">
+                                <strong class="text-dark d-block mb-1">
+                                    <i class="bi bi-file-earmark-check text-info me-1"></i>2. Documents
+                                </strong>
+                                Verify fire hydrant layout, alarm drawings, and equipment certification test records.
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="bg-white p-3 rounded h-100 border">
+                                <strong class="text-dark d-block mb-1">
+                                    <i class="bi bi-clipboard2-check text-warning me-1"></i>3. Site Visit
+                                </strong>
+                                Conduct physical safety audit of fire extinguishers, hose reels, exits, and riser pressures.
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="bg-white p-3 rounded h-100 border">
+                                <strong class="text-dark d-block mb-1">
+                                    <i class="bi bi-check2-circle text-success me-1"></i>4. Recommendation
+                                </strong>
+                                Log deficiencies for re-inspection or certify compliance for final Fire NOC certificate issuance.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
     </div>
 </div>
 {% endblock %}

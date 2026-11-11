@@ -4,5 +4,11 @@ from . import views
 app_name = 'officers'
 
 urlpatterns = [
-    path('', views.officer_home, name='officer_home'),
+    # Officer Dashboard Routes
+    path('', views.dashboard, name='officer_home'),
+    path('dashboard/', views.dashboard, name='dashboard'),
+
+    # Officer Authentication Routes
+    path('login/', views.officer_login, name='login'),
+    path('logout/', views.officer_logout, name='logout'),
 ]
