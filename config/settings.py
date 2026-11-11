@@ -54,6 +54,7 @@ INSTALLED_APPS = [
 
     # Custom team apps
     'applicants',
+    'officers',
 ]
 
 MIDDLEWARE = [

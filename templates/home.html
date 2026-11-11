@@ -75,7 +75,7 @@
                         <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle badge-role">
                             <i class="bi bi-shield-check me-1"></i>Officer Module
                         </span>
-                        <span class="badge bg-secondary">Coming Soon</span>
+                        <span class="badge bg-success">Foundation Initialized</span>
                     </div>
                     <div class="display-6 text-warning mb-3">
                         <i class="bi bi-clipboard2-check"></i>
@@ -85,9 +85,9 @@
                         Assigned fire officers view verification queues, schedule onsite building inspections, record safety checklist observations, log deficiencies, and submit reports.
                     </p>
                     <div class="mt-3">
-                        <button class="btn btn-outline-secondary w-100" disabled>
-                            Module In Development
-                        </button>
+                        <a href="{% url 'officers:officer_home' %}" class="btn btn-warning w-100">
+                            Open Officer Portal <i class="bi bi-arrow-right ms-1"></i>
+                        </a>
                     </div>
                 </div>
             </div>

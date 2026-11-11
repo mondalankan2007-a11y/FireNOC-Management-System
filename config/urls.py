@@ -23,6 +23,9 @@ urlpatterns = [
 
     # Applicant Module Routes
     path('applicant/', include('applicants.urls')),
+
+    # Officer Module Routes
+    path('officer/', include('officers.urls')),
 ]
 
 # Serve media files in development environment

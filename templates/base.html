@@ -76,6 +76,11 @@
                             <i class="bi bi-person-badge me-1"></i>Applicant Portal
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'officer' in request.path %}active{% endif %}" {% if 'officer' in request.path %}aria-current="page"{% endif %} href="{% url 'officers:officer_home' %}">
+                            <i class="bi bi-shield-check me-1"></i>Officer Portal
+                        </a>
+                    </li>
                 </ul>
 
                 <!-- Authentication Actions (Login, Register & Logout) -->
@@ -166,7 +171,7 @@
                                 <a href="{% url 'applicants:applicant_home' %}"><i class="bi bi-chevron-right me-1 text-danger"></i>Applicant Portal</a>
                             </li>
                             <li class="mb-2">
-                                <a href="#login"><i class="bi bi-chevron-right me-1 text-danger"></i>Officer / Admin Portal</a>
+                                <a href="{% url 'officers:officer_home' %}"><i class="bi bi-chevron-right me-1 text-danger"></i>Officer Portal</a>
                             </li>
                         </ul>
                     </div>
