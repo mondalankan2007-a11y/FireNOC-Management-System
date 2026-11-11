@@ -1,4 +1,5 @@
 from functools import wraps
+import datetime
 from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -9,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from applicants.models import Application, ApplicationDocument
-from .models import OfficerProfile, DocumentVerification, ApplicationReview
+from .models import OfficerProfile, DocumentVerification, ApplicationReview, Inspection, InspectionChecklistItem, InspectionReport
 
 
 def is_officer(user):
@@ -54,7 +55,7 @@ def officer_required(view_func):
 def get_officer_dashboard_data(user):
     """
     Retrieve officer dashboard statistics and pending applications.
-    Queries database-backed values from the Application model.
+    Queries database-backed values from the Application and Inspection models.
     """
     stats = {
         'total_applications': 0,
@@ -76,26 +77,15 @@ def get_officer_dashboard_data(user):
         ]
     ).count()
 
+    # Use real Inspection model data
+    stats['scheduled_inspections'] = Inspection.objects.filter(
+        status__in=[Inspection.STATUS_SCHEDULED, Inspection.STATUS_IN_PROGRESS]
+    ).count()
+    stats['completed_inspections'] = Inspection.objects.filter(
+        status=Inspection.STATUS_COMPLETED
+    ).count()
+
     recent_applications = list(Application.objects.order_by('-created_at')[:5])
-
-    # Dynamic inspection check if Inspection model is implemented in future commits
-    Inspection = None
-    for app_config in apps.get_app_configs():
-        for model in app_config.get_models():
-            model_name = model.__name__.lower()
-            if model_name in ('inspection', 'siteinspection', 'fieldinspection'):
-                Inspection = model
-                break
-        if Inspection:
-            break
-
-    if Inspection is not None:
-        stats['scheduled_inspections'] = Inspection.objects.filter(
-            status__in=['SCHEDULED', 'ASSIGNED', 'scheduled', 'assigned']
-        ).count()
-        stats['completed_inspections'] = Inspection.objects.filter(
-            status__in=['COMPLETED', 'PASSED', 'CLEARED', 'completed', 'passed', 'cleared']
-        ).count()
 
     return stats, recent_applications
 
@@ -111,9 +101,17 @@ def dashboard(request):
     stats, recent_applications = get_officer_dashboard_data(request.user)
     profile = getattr(request.user, 'officer_profile', None)
 
+    upcoming_inspections = list(
+        Inspection.objects
+        .filter(status__in=[Inspection.STATUS_SCHEDULED, Inspection.STATUS_IN_PROGRESS])
+        .select_related('application', 'officer')
+        .order_by('scheduled_date', 'scheduled_time')[:5]
+    )
+
     context = {
         'stats': stats,
         'recent_applications': recent_applications,
+        'upcoming_inspections': upcoming_inspections,
         'officer': request.user,
         'profile': profile,
     }
@@ -210,6 +208,19 @@ def application_detail(request, pk):
     rejected_docs = sum(1 for d in doc_list if hasattr(d, 'verification') and d.verification.status == 'REJECTED')
     pending_docs = total_docs - verified_docs - rejected_docs
 
+    inspections = list(
+        application.inspections.select_related('officer').order_by('-created_at')
+    )
+    latest_inspection = inspections[0] if inspections else None
+    has_active_inspection = any(
+        i.status in (Inspection.STATUS_SCHEDULED, Inspection.STATUS_IN_PROGRESS)
+        for i in inspections
+    )
+    can_schedule_inspection = (
+        application.status in INSPECTION_ELIGIBLE_STATUSES
+        and not has_active_inspection
+    )
+
     context = {
         'application': application,
         'documents': doc_list,
@@ -218,6 +229,10 @@ def application_detail(request, pk):
         'verified_docs': verified_docs,
         'rejected_docs': rejected_docs,
         'pending_docs': pending_docs,
+        'inspections': inspections,
+        'latest_inspection': latest_inspection,
+        'has_active_inspection': has_active_inspection,
+        'can_schedule_inspection': can_schedule_inspection,
         'officer': request.user,
         'profile': profile,
     }
@@ -455,3 +470,403 @@ def officer_logout(request):
     logout(request)
     messages.success(request, "You have been successfully logged out of the Fire Officer Portal.")
     return redirect('officers:login')
+
+
+# ===========================================================================
+# Commit 4 — Inspection Management Views
+# ===========================================================================
+
+# Checklist item types in display order (matches model ITEM_TYPES)
+CHECKLIST_ITEM_TYPES = [t[0] for t in InspectionChecklistItem.ITEM_TYPES]
+
+# Application statuses that make an application eligible for inspection scheduling
+INSPECTION_ELIGIBLE_STATUSES = {'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION'}
+
+
+def _can_modify_inspection(user, inspection):
+    """
+    Ensure only the assigned inspecting officer (or superuser) can modify
+    an inspection's state, checklist, or report.
+    """
+    if user.is_superuser:
+        return True
+    return inspection.officer_id in (None, user.id)
+
+
+def _ensure_checklist(inspection):
+    """Create missing checklist items for an inspection (idempotent)."""
+    existing_types = set(
+        inspection.checklist_items.values_list('item_type', flat=True)
+    )
+    to_create = [
+        InspectionChecklistItem(
+            inspection=inspection,
+            item_type=item_type,
+            status=InspectionChecklistItem.STATUS_NOT_APPLICABLE,
+        )
+        for item_type in CHECKLIST_ITEM_TYPES
+        if item_type not in existing_types
+    ]
+    if to_create:
+        InspectionChecklistItem.objects.bulk_create(to_create)
+
+
+@officer_required
+def inspection_list(request):
+    """
+    Display all inspections visible to the authenticated officer.
+    Supports filtering by status.
+    """
+    status_filter = request.GET.get('status', '').strip().upper()
+
+    qs = (
+        Inspection.objects
+        .select_related('application', 'officer')
+        .all()
+    )
+
+    valid_statuses = {s[0] for s in Inspection.STATUS_CHOICES}
+    if status_filter in valid_statuses:
+        qs = qs.filter(status=status_filter)
+
+    profile = getattr(request.user, 'officer_profile', None)
+    context = {
+        'inspections': qs,
+        'status_filter': status_filter,
+        'total_count': qs.count(),
+        'officer': request.user,
+        'profile': profile,
+        'STATUS_CHOICES': Inspection.STATUS_CHOICES,
+    }
+    return render(request, 'officers/inspection_list.html', context)
+
+
+@officer_required
+def schedule_inspection(request, app_id):
+    """
+    Schedule a new inspection for an eligible application.
+    GET  → show scheduling form.
+    POST → validate and create Inspection; advance Application status.
+    """
+    application = get_object_or_404(Application, pk=app_id)
+    profile = getattr(request.user, 'officer_profile', None)
+
+    # Eligibility check
+    if application.status not in INSPECTION_ELIGIBLE_STATUSES:
+        messages.error(
+            request,
+            f"Application {application.application_id} is not eligible for inspection scheduling. "
+            f"Current status: {application.get_status_display()}. "
+            "Only applications with 'Documents Verified' or 'Under Inspection' status can be scheduled."
+        )
+        return redirect('officers:application_detail', pk=app_id)
+
+    # Prevent scheduling if an active inspection already exists
+    if application.inspections.filter(
+        status__in=[Inspection.STATUS_SCHEDULED, Inspection.STATUS_IN_PROGRESS]
+    ).exists():
+        messages.warning(
+            request,
+            f"Application {application.application_id} already has an active scheduled or in-progress inspection."
+        )
+        return redirect('officers:application_detail', pk=app_id)
+
+    if request.method == 'POST':
+        scheduled_date_str = request.POST.get('scheduled_date', '').strip()
+        scheduled_time_str = request.POST.get('scheduled_time', '').strip()
+        location = request.POST.get('location', '').strip()
+        officer_remarks = request.POST.get('officer_remarks', '').strip()
+
+        errors = []
+
+        # Validate date
+        scheduled_date = None
+        try:
+            scheduled_date = datetime.date.fromisoformat(scheduled_date_str)
+        except ValueError:
+            errors.append("Please enter a valid inspection date.")
+
+        # Validate time
+        scheduled_time = None
+        try:
+            scheduled_time = datetime.time.fromisoformat(scheduled_time_str)
+        except ValueError:
+            errors.append("Please enter a valid inspection time.")
+
+        # Validate date and time are not in the past
+        if scheduled_date and scheduled_time:
+            scheduled_dt = timezone.make_aware(
+                datetime.datetime.combine(scheduled_date, scheduled_time),
+                timezone.get_current_timezone()
+            )
+            if scheduled_dt < timezone.now():
+                errors.append("Inspection date and time cannot be in the past.")
+        elif scheduled_date and scheduled_date < timezone.localdate():
+            errors.append("Inspection date cannot be in the past.")
+
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+            return render(request, 'officers/schedule_inspection.html', {
+                'application': application,
+                'officer': request.user,
+                'profile': profile,
+                'form_data': {
+                    'scheduled_date': scheduled_date_str,
+                    'scheduled_time': scheduled_time_str,
+                    'location': location,
+                    'officer_remarks': officer_remarks,
+                },
+            })
+
+        # Create inspection — officer is always the authenticated user (never from POST)
+        inspection = Inspection.objects.create(
+            application=application,
+            officer=request.user,
+            scheduled_date=scheduled_date,
+            scheduled_time=scheduled_time,
+            location=location or application.building_address,
+            status=Inspection.STATUS_SCHEDULED,
+            officer_remarks=officer_remarks,
+        )
+
+        # Advance application status to UNDER_INSPECTION
+        application.status = 'UNDER_INSPECTION'
+        application.save(update_fields=['status', 'updated_at'])
+
+        # Create the full checklist
+        _ensure_checklist(inspection)
+
+        messages.success(
+            request,
+            f"Inspection scheduled for {application.application_id} on "
+            f"{scheduled_date.strftime('%d %b %Y')} at {inspection.scheduled_time.strftime('%H:%M')}."
+        )
+        return redirect('officers:inspection_detail', inspection_id=inspection.pk)
+
+    # GET — render blank form
+    return render(request, 'officers/schedule_inspection.html', {
+        'application': application,
+        'officer': request.user,
+        'profile': profile,
+        'form_data': {
+            'scheduled_date': '',
+            'scheduled_time': '',
+            'location': application.building_address,
+            'officer_remarks': '',
+        },
+    })
+
+
+@officer_required
+def inspection_detail(request, inspection_id):
+    """
+    Detail view for a single inspection.
+    Shows application info, inspection info, checklist, report and state-transition actions.
+    """
+    inspection = get_object_or_404(
+        Inspection.objects.select_related('application', 'officer'),
+        pk=inspection_id
+    )
+    _ensure_checklist(inspection)
+
+    checklist_items = list(
+        inspection.checklist_items.order_by('item_type')
+    )
+    report = getattr(inspection, 'report', None)
+    profile = getattr(request.user, 'officer_profile', None)
+
+    context = {
+        'inspection': inspection,
+        'checklist_items': checklist_items,
+        'report': report,
+        'can_modify': _can_modify_inspection(request.user, inspection),
+        'officer': request.user,
+        'profile': profile,
+        'STATUS_SCHEDULED': Inspection.STATUS_SCHEDULED,
+        'STATUS_IN_PROGRESS': Inspection.STATUS_IN_PROGRESS,
+        'STATUS_COMPLETED': Inspection.STATUS_COMPLETED,
+        'STATUS_CANCELLED': Inspection.STATUS_CANCELLED,
+        'RESULT_CHOICES': InspectionReport.RESULT_CHOICES,
+        'checklist_status_choices': InspectionChecklistItem.STATUS_CHOICES,
+    }
+    return render(request, 'officers/inspection_detail.html', context)
+
+
+@officer_required
+def inspection_start(request, inspection_id):
+    """Transition inspection from Scheduled → In Progress."""
+    if request.method != 'POST':
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    inspection = get_object_or_404(Inspection, pk=inspection_id)
+
+    if not _can_modify_inspection(request.user, inspection):
+        messages.error(request, "You are not authorized to modify another officer's inspection.")
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    if not inspection.can_transition_to(Inspection.STATUS_IN_PROGRESS):
+        messages.error(
+            request,
+            f"Cannot start inspection: current status is '{inspection.get_status_display()}'. "
+            "Only 'Scheduled' inspections can be started."
+        )
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    inspection.status = Inspection.STATUS_IN_PROGRESS
+    inspection.started_at = timezone.now()
+    inspection.save(update_fields=['status', 'started_at', 'updated_at'])
+
+    messages.success(request, "Inspection started. Please complete the safety checklist and submit your report.")
+    return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+
+@officer_required
+def inspection_complete(request, inspection_id):
+    """
+    Transition inspection from In Progress → Completed.
+    Requires the officer to submit the inspection report as part of the same POST.
+    POST fields: overall_result, general_observations, officer_remarks
+    """
+    if request.method != 'POST':
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    inspection = get_object_or_404(Inspection, pk=inspection_id)
+
+    if not _can_modify_inspection(request.user, inspection):
+        messages.error(request, "You are not authorized to modify another officer's inspection.")
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    if not inspection.can_transition_to(Inspection.STATUS_COMPLETED):
+        messages.error(
+            request,
+            f"Cannot complete inspection: current status is '{inspection.get_status_display()}'. "
+            "Only 'In Progress' inspections can be completed."
+        )
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    overall_result = request.POST.get('overall_result', '').strip()
+    general_observations = request.POST.get('general_observations', '').strip()
+    officer_remarks = request.POST.get('officer_remarks', '').strip()
+
+    valid_results = {r[0] for r in InspectionReport.RESULT_CHOICES}
+    if overall_result not in valid_results:
+        messages.error(request, "Please select a valid overall inspection result before completing.")
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    if not general_observations:
+        messages.error(request, "General observations are required before completing the inspection.")
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    # Save checklist if posted
+    _save_checklist(request, inspection)
+
+    now = timezone.now()
+
+    # Create or update report
+    InspectionReport.objects.update_or_create(
+        inspection=inspection,
+        defaults={
+            'overall_result': overall_result,
+            'general_observations': general_observations,
+            'officer_remarks': officer_remarks,
+            'completed_at': now,
+        }
+    )
+
+    inspection.status = Inspection.STATUS_COMPLETED
+    inspection.completed_at = now
+    inspection.save(update_fields=['status', 'completed_at', 'updated_at'])
+
+    messages.success(
+        request,
+        f"Inspection completed. Report recorded as '{InspectionReport(overall_result=overall_result).get_overall_result_display()}'."
+    )
+    return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+
+@officer_required
+def inspection_cancel(request, inspection_id):
+    """Transition inspection from Scheduled or In Progress → Cancelled."""
+    if request.method != 'POST':
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    inspection = get_object_or_404(Inspection, pk=inspection_id)
+
+    if not _can_modify_inspection(request.user, inspection):
+        messages.error(request, "You are not authorized to modify another officer's inspection.")
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    if not inspection.can_transition_to(Inspection.STATUS_CANCELLED):
+        messages.error(
+            request,
+            f"Cannot cancel inspection: current status is '{inspection.get_status_display()}'."
+        )
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    cancel_reason = request.POST.get('cancel_reason', '').strip()
+    if cancel_reason:
+        inspection.officer_remarks = (
+            f"{inspection.officer_remarks}\n\nCancellation reason: {cancel_reason}".strip()
+        )
+
+    inspection.status = Inspection.STATUS_CANCELLED
+    inspection.save(update_fields=['status', 'officer_remarks', 'updated_at'])
+
+    messages.warning(request, f"Inspection #{inspection.pk} has been cancelled.")
+    return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+
+@officer_required
+def inspection_checklist_save(request, inspection_id):
+    """
+    Save checklist item statuses while inspection is In Progress.
+    POST only. Redirects back to the detail page.
+    """
+    if request.method != 'POST':
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    inspection = get_object_or_404(Inspection, pk=inspection_id)
+
+    if not _can_modify_inspection(request.user, inspection):
+        messages.error(request, "You are not authorized to modify another officer's inspection.")
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    if not inspection.is_editable:
+        messages.error(
+            request,
+            "Checklist can only be updated while the inspection is 'In Progress'."
+        )
+        return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+    _save_checklist(request, inspection)
+    messages.success(request, "Checklist updated successfully.")
+    return redirect('officers:inspection_detail', inspection_id=inspection_id)
+
+
+def _save_checklist(request, inspection):
+    """
+    Internal helper: persist checklist item statuses and remarks from POST data.
+    Only processes items that belong to the given inspection.
+    """
+    _ensure_checklist(inspection)
+    valid_statuses = {s[0] for s in InspectionChecklistItem.STATUS_CHOICES}
+    items = {item.item_type: item for item in inspection.checklist_items.all()}
+
+    for item_type, item in items.items():
+        status_key = f'checklist_{item_type}_status'
+        remarks_key = f'checklist_{item_type}_remarks'
+
+        updated = False
+        if status_key in request.POST:
+            new_status = request.POST.get(status_key, '').strip()
+            if new_status in valid_statuses and new_status != item.status:
+                item.status = new_status
+                updated = True
+        if remarks_key in request.POST:
+            new_remarks = request.POST.get(remarks_key, '').strip()
+            if new_remarks != item.remarks:
+                item.remarks = new_remarks
+                updated = True
+        if updated:
+            item.save(update_fields=['status', 'remarks', 'updated_at'])

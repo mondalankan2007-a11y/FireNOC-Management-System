@@ -1,0 +1,188 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Schedule Inspection — {{ application.application_id }} | FireNOC Officer Portal{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'officers:officer_home' %}">Officer Portal</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'officers:application_list' %}">Applications</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'officers:application_detail' application.pk %}">{{ application.application_id }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Schedule Inspection</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Sidebar -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <div class="dashboard-user-profile text-center" style="background: linear-gradient(135deg, #07172b 0%, #0b2545 100%); border-bottom: 3px solid #f59e0b;">
+                    <div class="dashboard-user-avatar mx-auto mb-2" style="background-color: rgba(245,158,11,0.2); border-color: rgba(245,158,11,0.5); color: #fbbf24;">
+                        <i class="bi bi-shield-check"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">{{ officer.get_full_name|default:officer.username }}</h5>
+                    <small class="text-white-50 d-block px-2 text-truncate">{{ profile.designation|default:"Fire Safety Inspection Officer" }}</small>
+                    <div class="mt-2">
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1 small">
+                            <i class="bi bi-person-badge me-1"></i>ID: {{ profile.officer_id|default:officer.username }}
+                        </span>
+                    </div>
+                </div>
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <a class="nav-link" href="{% url 'officers:officer_home' %}"><i class="bi bi-grid-1x2-fill me-2"></i>Dashboard</a>
+                        <a class="nav-link active" href="{% url 'officers:application_list' %}"><i class="bi bi-file-earmark-text me-2 text-primary"></i>Applications</a>
+                        <a class="nav-link" href="{% url 'officers:application_list' %}"><i class="bi bi-file-earmark-check me-2 text-info"></i>Document Verification</a>
+                        <a class="nav-link" href="{% url 'officers:inspection_list' %}"><i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections</a>
+                        <a class="nav-link" href="#deficiencies"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies</a>
+                        <hr class="my-2 border-secondary-subtle">
+                        <form method="post" action="{% url 'officers:logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Application Summary Card -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <h6 class="fw-bold text-dark mb-2"><i class="bi bi-file-earmark-text text-warning me-2"></i>Application</h6>
+                <div class="small">
+                    <div class="mb-1"><strong>ID:</strong> {{ application.application_id }}</div>
+                    <div class="mb-1"><strong>Building:</strong> {{ application.building_name }}</div>
+                    <div class="mb-1"><strong>Applicant:</strong> {{ application.full_name }}</div>
+                    <div><strong>Status:</strong>
+                        <span class="badge bg-info-subtle text-info border border-info-subtle">{{ application.get_status_display }}</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="col-lg-9 col-md-8">
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags == 'warning' %}warning{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                        {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <!-- Banner -->
+            <div class="dashboard-welcome-banner shadow-sm mb-4" style="background: linear-gradient(135deg, #07172b 0%, #0b2545 100%); border-left: 4px solid #f59e0b;">
+                <div class="row align-items-center">
+                    <div class="col-lg-8 mb-2 mb-lg-0">
+                        <span class="badge bg-warning text-dark mb-2 px-3 py-1 text-uppercase fw-semibold">
+                            <i class="bi bi-clipboard2-plus me-1"></i>Schedule Site Inspection
+                        </span>
+                        <h1 class="h3 fw-bold text-white mb-1">{{ application.building_name }}</h1>
+                        <p class="text-white-50 mb-0 fs-6">{{ application.application_id }} &mdash; {{ application.get_application_type_display }}</p>
+                    </div>
+                    <div class="col-lg-4 text-lg-end">
+                        <a href="{% url 'officers:application_detail' application.pk %}" class="btn btn-outline-light btn-sm">
+                            <i class="bi bi-arrow-left me-1"></i>Back to Application
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule Form -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-calendar2-plus-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">Inspection Details</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <form method="post" action="{% url 'officers:schedule_inspection' application.pk %}">
+                        {% csrf_token %}
+                        <div class="row g-3">
+
+                            <!-- Date -->
+                            <div class="col-md-6">
+                                <label for="scheduled_date" class="form-label fw-semibold text-dark">
+                                    Inspection Date <span class="text-danger">*</span>
+                                </label>
+                                <input type="date"
+                                    class="form-control"
+                                    id="scheduled_date"
+                                    name="scheduled_date"
+                                    value="{{ form_data.scheduled_date }}"
+                                    min="{% now 'Y-m-d' %}"
+                                    required>
+                                <div class="form-text text-muted">Must be today or a future date.</div>
+                            </div>
+
+                            <!-- Time -->
+                            <div class="col-md-6">
+                                <label for="scheduled_time" class="form-label fw-semibold text-dark">
+                                    Inspection Time <span class="text-danger">*</span>
+                                </label>
+                                <input type="time"
+                                    class="form-control"
+                                    id="scheduled_time"
+                                    name="scheduled_time"
+                                    value="{{ form_data.scheduled_time }}"
+                                    required>
+                            </div>
+
+                            <!-- Location -->
+                            <div class="col-md-12">
+                                <label for="location" class="form-label fw-semibold text-dark">
+                                    Inspection Location
+                                </label>
+                                <textarea class="form-control"
+                                    id="location"
+                                    name="location"
+                                    rows="2"
+                                    placeholder="Site address (pre-filled from application; update if different)">{{ form_data.location }}</textarea>
+                                <div class="form-text text-muted">Leave as-is to use the application building address.</div>
+                            </div>
+
+                            <!-- Officer (read-only display) -->
+                            <div class="col-md-6">
+                                <label class="form-label fw-semibold text-dark">Assigned Officer</label>
+                                <div class="form-control-plaintext border rounded px-3 py-2 bg-light small fw-semibold text-dark">
+                                    <i class="bi bi-person-badge text-warning me-2"></i>
+                                    {{ officer.get_full_name|default:officer.username }}
+                                    <span class="text-muted fw-normal">({{ profile.officer_id|default:officer.username }})</span>
+                                </div>
+                                <div class="form-text text-muted">Assigned from your authenticated session. Cannot be changed from this form.</div>
+                            </div>
+
+                            <!-- Remarks -->
+                            <div class="col-md-12">
+                                <label for="officer_remarks" class="form-label fw-semibold text-dark">
+                                    Scheduling Remarks <small class="text-muted fw-normal">(optional)</small>
+                                </label>
+                                <textarea class="form-control"
+                                    id="officer_remarks"
+                                    name="officer_remarks"
+                                    rows="3"
+                                    maxlength="2000"
+                                    placeholder="Any scheduling notes or pre-inspection observations…">{{ form_data.officer_remarks }}</textarea>
+                            </div>
+
+                            <div class="col-12 mt-2">
+                                <button type="submit" class="btn btn-warning text-dark fw-bold px-4">
+                                    <i class="bi bi-calendar-check me-1"></i>Confirm Schedule Inspection
+                                </button>
+                                <a href="{% url 'officers:application_detail' application.pk %}" class="btn btn-light ms-2">Cancel</a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+{% endblock %}
+

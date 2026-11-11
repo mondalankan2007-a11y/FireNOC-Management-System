@@ -141,6 +141,183 @@ class ApplicationReview(models.Model):
         return f"Review for {self.application.application_id}: {self.get_status_display()}"
 
 
+class Inspection(models.Model):
+    """
+    Site inspection record for a Fire NOC application.
+    Uses ForeignKey (not OneToOne) to allow re-inspection after a failed or cancelled attempt.
+    """
+    STATUS_SCHEDULED = 'SCHEDULED'
+    STATUS_IN_PROGRESS = 'IN_PROGRESS'
+    STATUS_COMPLETED = 'COMPLETED'
+    STATUS_CANCELLED = 'CANCELLED'
+
+    STATUS_CHOICES = [
+        (STATUS_SCHEDULED, 'Scheduled'),
+        (STATUS_IN_PROGRESS, 'In Progress'),
+        (STATUS_COMPLETED, 'Completed'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
+
+    # Valid state transitions (from_state -> set of allowed to_states)
+    VALID_TRANSITIONS = {
+        STATUS_SCHEDULED: {STATUS_IN_PROGRESS, STATUS_CANCELLED},
+        STATUS_IN_PROGRESS: {STATUS_COMPLETED, STATUS_CANCELLED},
+        STATUS_COMPLETED: set(),
+        STATUS_CANCELLED: set(),
+    }
+
+    application = models.ForeignKey(
+        'applicants.Application',
+        on_delete=models.CASCADE,
+        related_name='inspections'
+    )
+    officer = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='conducted_inspections',
+        help_text="Officer who scheduled / is conducting the inspection"
+    )
+    scheduled_date = models.DateField(help_text="Date on which the site inspection is scheduled")
+    scheduled_time = models.TimeField(help_text="Time at which the site inspection is scheduled")
+    location = models.CharField(
+        max_length=300,
+        blank=True,
+        default='',
+        help_text="Inspection site address / location if different from application address"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_SCHEDULED)
+    officer_remarks = models.TextField(
+        blank=True,
+        default='',
+        help_text="Scheduling notes or general inspection remarks"
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Inspection'
+        verbose_name_plural = 'Inspections'
+        ordering = ['scheduled_date', 'scheduled_time']
+
+    def __str__(self):
+        return (
+            f"Inspection #{self.pk} — {self.application.application_id} "
+            f"on {self.scheduled_date} [{self.get_status_display()}]"
+        )
+
+    def can_transition_to(self, new_status):
+        """Return True if moving from current status to new_status is a valid transition."""
+        return new_status in self.VALID_TRANSITIONS.get(self.status, set())
+
+    @property
+    def is_editable(self):
+        """Checklist and report can only be edited when inspection is In Progress."""
+        return self.status == self.STATUS_IN_PROGRESS
+
+
+class InspectionChecklistItem(models.Model):
+    """
+    Individual checklist item assessed during a site inspection.
+    Can only be edited while the parent Inspection is In Progress.
+    """
+    ITEM_TYPES = [
+        ('EXTINGUISHER_AVAILABLE', 'Fire extinguishers available'),
+        ('EXTINGUISHER_ACCESSIBLE', 'Fire extinguishers accessible'),
+        ('EXITS_AVAILABLE', 'Emergency exits available'),
+        ('EXITS_UNOBSTRUCTED', 'Emergency exits unobstructed'),
+        ('ALARM_INSTALLED', 'Fire alarm system installed'),
+        ('ALARM_FUNCTIONAL', 'Fire alarm system functional'),
+        ('EMERGENCY_LIGHTING', 'Emergency lighting available'),
+        ('SAFETY_SIGNAGE', 'Fire safety signage available'),
+        ('ELECTRICAL_SAFETY', 'Electrical safety provisions'),
+        ('STAIRWAY_ACCESS', 'Stairways / fire escape access clear'),
+        ('HYDRANT_WATER', 'Fire hydrant / water supply available'),
+        ('OVERALL_COMPLIANCE', 'Overall fire safety compliance'),
+    ]
+
+    STATUS_COMPLIANT = 'COMPLIANT'
+    STATUS_NON_COMPLIANT = 'NON_COMPLIANT'
+    STATUS_NOT_APPLICABLE = 'NOT_APPLICABLE'
+
+    STATUS_CHOICES = [
+        (STATUS_COMPLIANT, 'Compliant'),
+        (STATUS_NON_COMPLIANT, 'Non-Compliant'),
+        (STATUS_NOT_APPLICABLE, 'Not Applicable'),
+    ]
+
+    inspection = models.ForeignKey(
+        Inspection,
+        on_delete=models.CASCADE,
+        related_name='checklist_items'
+    )
+    item_type = models.CharField(max_length=50, choices=ITEM_TYPES)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_NOT_APPLICABLE
+    )
+    remarks = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Inspection Checklist Item'
+        verbose_name_plural = 'Inspection Checklist Items'
+        unique_together = ('inspection', 'item_type')
+        ordering = ['item_type']
+
+    def __str__(self):
+        return f"{self.get_item_type_display()}: {self.get_status_display()}"
+
+
+class InspectionReport(models.Model):
+    """
+    Final inspection report submitted by the officer when completing the inspection.
+    Associated one-to-one with an Inspection.
+    """
+    RESULT_SATISFACTORY = 'SATISFACTORY'
+    RESULT_UNSATISFACTORY = 'UNSATISFACTORY'
+    RESULT_REQUIRES_RECTIFICATION = 'REQUIRES_RECTIFICATION'
+
+    RESULT_CHOICES = [
+        (RESULT_SATISFACTORY, 'Satisfactory'),
+        (RESULT_UNSATISFACTORY, 'Unsatisfactory'),
+        (RESULT_REQUIRES_RECTIFICATION, 'Requires Rectification'),
+    ]
+
+    inspection = models.OneToOneField(
+        Inspection,
+        on_delete=models.CASCADE,
+        related_name='report'
+    )
+    overall_result = models.CharField(max_length=30, choices=RESULT_CHOICES)
+    general_observations = models.TextField(
+        help_text="General on-site observations recorded by the officer"
+    )
+    officer_remarks = models.TextField(
+        blank=True,
+        default='',
+        help_text="Additional officer remarks or recommendations"
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Inspection Report'
+        verbose_name_plural = 'Inspection Reports'
+
+    def __str__(self):
+        return (
+            f"Report for Inspection #{self.inspection.pk} — "
+            f"{self.get_overall_result_display()}"
+        )
+
+
 def create_officer_user(
     username,
     email,

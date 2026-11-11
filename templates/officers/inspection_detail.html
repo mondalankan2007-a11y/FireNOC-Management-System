@@ -1,0 +1,507 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Inspection #{{ inspection.pk }} | FireNOC Officer Portal{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'officers:officer_home' %}">Officer Portal</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'officers:inspection_list' %}">Inspections</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Inspection #{{ inspection.pk }}</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Sidebar -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <div class="dashboard-user-profile text-center" style="background: linear-gradient(135deg, #07172b 0%, #0b2545 100%); border-bottom: 3px solid #f59e0b;">
+                    <div class="dashboard-user-avatar mx-auto mb-2" style="background-color: rgba(245,158,11,0.2); border-color: rgba(245,158,11,0.5); color: #fbbf24;">
+                        <i class="bi bi-shield-check"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">{{ officer.get_full_name|default:officer.username }}</h5>
+                    <small class="text-white-50 d-block px-2 text-truncate">{{ profile.designation|default:"Fire Safety Inspection Officer" }}</small>
+                    <div class="mt-2">
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1 small">
+                            <i class="bi bi-person-badge me-1"></i>ID: {{ profile.officer_id|default:officer.username }}
+                        </span>
+                    </div>
+                </div>
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <a class="nav-link" href="{% url 'officers:officer_home' %}"><i class="bi bi-grid-1x2-fill me-2"></i>Dashboard</a>
+                        <a class="nav-link" href="{% url 'officers:application_list' %}"><i class="bi bi-file-earmark-text me-2 text-primary"></i>Applications</a>
+                        <a class="nav-link" href="{% url 'officers:application_list' %}"><i class="bi bi-file-earmark-check me-2 text-info"></i>Document Verification</a>
+                        <a class="nav-link active" href="{% url 'officers:inspection_list' %}"><i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections</a>
+                        <a class="nav-link" href="#deficiencies"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies</a>
+                        <hr class="my-2 border-secondary-subtle">
+                        <form method="post" action="{% url 'officers:logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Inspection Status Card -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <h6 class="fw-bold text-dark mb-2"><i class="bi bi-clipboard2-check text-warning me-2"></i>Inspection #{{ inspection.pk }}</h6>
+                <div class="mb-2">
+                    {% if inspection.status == STATUS_SCHEDULED %}
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle w-100 py-2">
+                            <i class="bi bi-calendar-check me-1"></i>Scheduled
+                        </span>
+                    {% elif inspection.status == STATUS_IN_PROGRESS %}
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle w-100 py-2">
+                            <i class="bi bi-activity me-1"></i>In Progress
+                        </span>
+                    {% elif inspection.status == STATUS_COMPLETED %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle w-100 py-2">
+                            <i class="bi bi-check2-circle me-1"></i>Completed
+                        </span>
+                    {% elif inspection.status == STATUS_CANCELLED %}
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle w-100 py-2">
+                            <i class="bi bi-x-circle me-1"></i>Cancelled
+                        </span>
+                    {% endif %}
+                </div>
+                <div class="small text-muted">
+                    <div class="mb-1"><i class="bi bi-calendar me-1"></i>{{ inspection.scheduled_date|date:"d M Y" }}</div>
+                    <div class="mb-1"><i class="bi bi-clock me-1"></i>{{ inspection.scheduled_time|time:"H:i" }}</div>
+                    <div><i class="bi bi-person me-1"></i>{{ inspection.officer.get_full_name|default:inspection.officer.username|default:"—" }}</div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="col-lg-9 col-md-8">
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags == 'warning' %}warning{% elif message.tags == 'success' %}success{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                        {{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <!-- Banner -->
+            <div class="dashboard-welcome-banner shadow-sm mb-4" style="background: linear-gradient(135deg, #07172b 0%, #0b2545 100%); border-left: 4px solid #f59e0b;">
+                <div class="row align-items-center">
+                    <div class="col-lg-8 mb-2 mb-lg-0">
+                        <span class="badge bg-warning text-dark mb-2 px-3 py-1 text-uppercase fw-semibold">
+                            <i class="bi bi-clipboard2-check me-1"></i>Site Inspection
+                        </span>
+                        <h1 class="h3 fw-bold text-white mb-1">Inspection #{{ inspection.pk }}</h1>
+                        <p class="text-white-50 mb-0 fs-6">{{ inspection.application.building_name }} &mdash; {{ inspection.application.application_id }}</p>
+                    </div>
+                    <div class="col-lg-4 text-lg-end">
+                        <a href="{% url 'officers:inspection_list' %}" class="btn btn-outline-light btn-sm me-2">
+                            <i class="bi bi-arrow-left me-1"></i>All Inspections
+                        </a>
+                        <a href="{% url 'officers:application_detail' inspection.application.pk %}" class="btn btn-outline-light btn-sm">
+                            View Application
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- === Section 1: Application Information === -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-file-earmark-text-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">Application Information</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Application ID</label>
+                            <p class="mb-0 fw-bold font-monospace text-dark">{{ inspection.application.application_id }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Applicant</label>
+                            <p class="mb-0 fw-semibold">{{ inspection.application.full_name }}</p>
+                            <small class="text-muted">{{ inspection.application.mobile_number }}</small>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Application Status</label>
+                            <span class="badge bg-info-subtle text-info border border-info-subtle">{{ inspection.application.get_status_display }}</span>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Building Name</label>
+                            <p class="mb-0 fw-semibold text-dark">{{ inspection.application.building_name }}</p>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Building Type</label>
+                            <span class="badge bg-light text-dark border">{{ inspection.application.get_building_type_display }}</span>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Floors</label>
+                            <p class="mb-0 fw-semibold">{{ inspection.application.num_floors }}</p>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Address</label>
+                            <p class="mb-0 text-dark">{{ inspection.application.building_address }}, {{ inspection.application.city }}, {{ inspection.application.state }} — {{ inspection.application.pin_code }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- === Section 2: Inspection Information === -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-clipboard2-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">Inspection Information</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Assigned Officer</label>
+                            <p class="mb-0 fw-semibold text-dark">{{ inspection.officer.get_full_name|default:inspection.officer.username|default:"—" }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Scheduled Date</label>
+                            <p class="mb-0 fw-semibold">{{ inspection.scheduled_date|date:"d M Y" }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Scheduled Time</label>
+                            <p class="mb-0 fw-semibold">{{ inspection.scheduled_time|time:"H:i" }}</p>
+                        </div>
+                        <div class="col-md-8">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Inspection Location</label>
+                            <p class="mb-0 text-dark">{{ inspection.location|default:"—" }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Status</label>
+                            {% if inspection.status == STATUS_SCHEDULED %}
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2">
+                                    <i class="bi bi-calendar-check me-1"></i>Scheduled
+                                </span>
+                            {% elif inspection.status == STATUS_IN_PROGRESS %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-2">
+                                    <i class="bi bi-activity me-1"></i>In Progress
+                                </span>
+                            {% elif inspection.status == STATUS_COMPLETED %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2">
+                                    <i class="bi bi-check2-circle me-1"></i>Completed
+                                </span>
+                            {% elif inspection.status == STATUS_CANCELLED %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2">
+                                    <i class="bi bi-x-circle me-1"></i>Cancelled
+                                </span>
+                            {% endif %}
+                        </div>
+                        {% if inspection.started_at %}
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Started At</label>
+                            <p class="mb-0">{{ inspection.started_at|date:"d M Y, H:i" }}</p>
+                        </div>
+                        {% endif %}
+                        {% if inspection.completed_at %}
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Completed At</label>
+                            <p class="mb-0">{{ inspection.completed_at|date:"d M Y, H:i" }}</p>
+                        </div>
+                        {% endif %}
+                        {% if inspection.officer_remarks %}
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Officer Remarks</label>
+                            <div class="bg-light border rounded p-3 small text-dark fst-italic">{{ inspection.officer_remarks }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- === Section 3: Fire Safety Checklist === -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-info-subtle text-info d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-list-check"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">Fire Safety Checklist</h5>
+                    </div>
+                    {% if inspection.status == STATUS_IN_PROGRESS and can_modify %}
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Editable</span>
+                    {% elif inspection.status == STATUS_COMPLETED %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">Read-only (Completed)</span>
+                    {% else %}
+                        <span class="badge bg-secondary-subtle text-secondary border">{{ inspection.get_status_display }}</span>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    {% if inspection.status == STATUS_IN_PROGRESS and can_modify %}
+                    <form method="post" action="{% url 'officers:inspection_checklist_save' inspection.pk %}">
+                        {% csrf_token %}
+                    {% endif %}
+
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th scope="col" class="ps-3">Checklist Item</th>
+                                        <th scope="col" style="min-width:200px;">Status</th>
+                                        <th scope="col">Remarks</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for item in checklist_items %}
+                                    <tr>
+                                        <td class="ps-3 fw-semibold text-dark small">{{ item.get_item_type_display }}</td>
+                                        <td>
+                                            {% if inspection.status == STATUS_IN_PROGRESS and can_modify %}
+                                                <select class="form-select form-select-sm" name="checklist_{{ item.item_type }}_status">
+                                                    {% for val, label in checklist_status_choices %}
+                                                        <option value="{{ val }}" {% if item.status == val %}selected{% endif %}>{{ label }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            {% else %}
+                                                {% if item.status == 'COMPLIANT' %}
+                                                    <span class="badge bg-success-subtle text-success border border-success-subtle"><i class="bi bi-check2 me-1"></i>Compliant</span>
+                                                {% elif item.status == 'NON_COMPLIANT' %}
+                                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-x me-1"></i>Non-Compliant</span>
+                                                {% else %}
+                                                    <span class="badge bg-secondary-subtle text-secondary border">Not Applicable</span>
+                                                {% endif %}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if inspection.status == STATUS_IN_PROGRESS and can_modify %}
+                                                <input type="text" class="form-control form-control-sm"
+                                                    name="checklist_{{ item.item_type }}_remarks"
+                                                    value="{{ item.remarks }}"
+                                                    placeholder="Optional remarks…"
+                                                    maxlength="500">
+                                            {% else %}
+                                                <small class="text-muted">{{ item.remarks|default:"—" }}</small>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {% if inspection.status == STATUS_IN_PROGRESS and can_modify %}
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-sm btn-info text-white fw-bold">
+                                <i class="bi bi-save me-1"></i>Save Checklist
+                            </button>
+                            <small class="text-muted ms-3">Changes are saved separately from the inspection report.</small>
+                        </div>
+                    </form>
+                        {% endif %}
+                </div>
+            </div>
+
+            <!-- === Section 4: Inspection Report (if completed) === -->
+            {% if report %}
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-file-earmark-check-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">Inspection Report</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Overall Result</label>
+                            {% if report.overall_result == 'SATISFACTORY' %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 fs-6">
+                                    <i class="bi bi-check2-circle me-1"></i>Satisfactory
+                                </span>
+                            {% elif report.overall_result == 'UNSATISFACTORY' %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 fs-6">
+                                    <i class="bi bi-x-circle me-1"></i>Unsatisfactory
+                                </span>
+                            {% elif report.overall_result == 'REQUIRES_RECTIFICATION' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-2 fs-6">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>Requires Rectification
+                                </span>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Completed At</label>
+                            <p class="mb-0">{{ report.completed_at|date:"d M Y, H:i"|default:"—" }}</p>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">General Observations</label>
+                            <div class="bg-light border rounded p-3 small text-dark">{{ report.general_observations }}</div>
+                        </div>
+                        {% if report.officer_remarks %}
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Officer Remarks</label>
+                            <div class="bg-light border rounded p-3 small text-dark fst-italic">{{ report.officer_remarks }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- === Section 5: Officer Actions === -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-shield-exclamation"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">Actions</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+
+                    {% if not can_modify and inspection.status != STATUS_COMPLETED and inspection.status != STATUS_CANCELLED %}
+                        <div class="alert alert-warning d-flex align-items-center" role="alert">
+                            <i class="bi bi-shield-lock-fill me-2 fs-5"></i>
+                            <div>This inspection is assigned to <strong>{{ inspection.officer.get_full_name|default:inspection.officer.username }}</strong>. Only the assigned officer may modify or complete it.</div>
+                        </div>
+                    {% elif inspection.status == STATUS_SCHEDULED %}
+                        <!-- Start Inspection -->
+                        <div class="d-flex flex-wrap gap-3 align-items-start">
+                            <form method="post" action="{% url 'officers:inspection_start' inspection.pk %}">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-warning text-dark fw-bold px-4"
+                                    onclick="return confirm('Start this inspection now? Make sure you are on-site.')">
+                                    <i class="bi bi-play-fill me-1"></i>Start Inspection
+                                </button>
+                            </form>
+
+                            <!-- Cancel -->
+                            <button type="button" class="btn btn-outline-danger fw-bold px-4"
+                                data-bs-toggle="modal" data-bs-target="#cancelModal">
+                                <i class="bi bi-x-circle me-1"></i>Cancel Inspection
+                            </button>
+                        </div>
+                        <small class="text-muted d-block mt-3">Starting the inspection will transition its status to <strong>In Progress</strong> and enable the checklist for editing.</small>
+
+                    {% elif inspection.status == STATUS_IN_PROGRESS %}
+                        <!-- Complete Inspection (with report form) -->
+                        <div class="alert alert-info d-flex align-items-start mb-4" role="alert">
+                            <i class="bi bi-info-circle-fill me-2 mt-1"></i>
+                            <div>Fill in the checklist above, then submit the inspection report below to complete the inspection.</div>
+                        </div>
+
+                        <form method="post" action="{% url 'officers:inspection_complete' inspection.pk %}">
+                            {% csrf_token %}
+                            <div class="row g-3">
+                                <div class="col-md-5">
+                                    <label for="overall_result" class="form-label fw-semibold text-dark">
+                                        Overall Inspection Result <span class="text-danger">*</span>
+                                    </label>
+                                    <select class="form-select" id="overall_result" name="overall_result" required>
+                                        <option value="" disabled selected>— Select result —</option>
+                                        {% for val, label in RESULT_CHOICES %}
+                                            <option value="{{ val }}">{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-12">
+                                    <label for="general_observations" class="form-label fw-semibold text-dark">
+                                        General Observations <span class="text-danger">*</span>
+                                    </label>
+                                    <textarea class="form-control" id="general_observations" name="general_observations"
+                                        rows="4" maxlength="5000" required
+                                        placeholder="Describe on-site conditions, fire safety provisions observed, deviations from approved plans…"></textarea>
+                                </div>
+                                <div class="col-md-12">
+                                    <label for="report_officer_remarks" class="form-label fw-semibold text-dark">
+                                        Additional Remarks <small class="text-muted fw-normal">(optional)</small>
+                                    </label>
+                                    <textarea class="form-control" id="report_officer_remarks" name="officer_remarks"
+                                        rows="2" maxlength="2000"
+                                        placeholder="Recommendations, follow-up actions, or other notes…"></textarea>
+                                </div>
+                                <div class="col-12 mt-2">
+                                    <button type="submit" class="btn btn-success fw-bold px-4"
+                                        onclick="return confirm('Complete inspection and submit report? This action cannot be undone.')">
+                                        <i class="bi bi-check2-square me-1"></i>Complete Inspection &amp; Submit Report
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger fw-bold px-4 ms-2"
+                                        data-bs-toggle="modal" data-bs-target="#cancelModal">
+                                        <i class="bi bi-x-circle me-1"></i>Cancel Inspection
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+
+                    {% elif inspection.status == STATUS_COMPLETED %}
+                        <div class="alert alert-success d-flex align-items-center" role="alert">
+                            <i class="bi bi-check2-circle-fill me-2 fs-5"></i>
+                            <div>This inspection has been <strong>completed</strong>. All records are now read-only.</div>
+                        </div>
+                        <a href="{% url 'officers:application_detail' inspection.application.pk %}" class="btn btn-outline-primary fw-bold">
+                            <i class="bi bi-file-earmark-text me-1"></i>View Application
+                        </a>
+
+                    {% elif inspection.status == STATUS_CANCELLED %}
+                        <div class="alert alert-danger d-flex align-items-center" role="alert">
+                            <i class="bi bi-x-circle-fill me-2 fs-5"></i>
+                            <div>This inspection has been <strong>cancelled</strong>. No further actions are allowed.</div>
+                        </div>
+                        <a href="{% url 'officers:schedule_inspection' inspection.application.pk %}" class="btn btn-outline-warning text-dark fw-bold">
+                            <i class="bi bi-calendar-plus me-1"></i>Schedule New Inspection
+                        </a>
+                    {% endif %}
+
+                </div>
+            </div>
+
+        </main>
+    </div><!-- /.row -->
+</div><!-- /.container-fluid -->
+
+<!-- Cancel Inspection Modal -->
+{% if inspection.status == STATUS_SCHEDULED or inspection.status == STATUS_IN_PROGRESS %}
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-danger" id="cancelModalLabel">
+                    <i class="bi bi-x-circle-fill me-2"></i>Cancel Inspection
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">
+                    You are about to cancel <strong>Inspection #{{ inspection.pk }}</strong> for
+                    <strong>{{ inspection.application.application_id }}</strong>.<br>
+                    This action cannot be undone.
+                </p>
+                <form method="post" action="{% url 'officers:inspection_cancel' inspection.pk %}" id="cancelForm">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label for="cancel_reason" class="form-label fw-semibold small">Cancellation Reason <small class="text-muted fw-normal">(optional)</small></label>
+                        <textarea class="form-control" id="cancel_reason" name="cancel_reason" rows="3" maxlength="1000"
+                            placeholder="Reason for cancellation…"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Keep Inspection</button>
+                <button type="submit" form="cancelForm" class="btn btn-danger fw-bold">
+                    <i class="bi bi-x-lg me-1"></i>Confirm Cancellation
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+

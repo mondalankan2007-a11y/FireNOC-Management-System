@@ -652,3 +652,458 @@ class OfficerApplicationVerificationTests(TestCase):
         self.application.refresh_from_db()
         # Status must remain PENDING — not changed by the applicant
         self.assertEqual(self.application.status, 'PENDING')
+
+
+# ===========================================================================
+# Commit 4 Tests: Inspection Management, Checklist, Report, State Machine
+# ===========================================================================
+import datetime
+from django.utils import timezone
+from officers.models import Inspection, InspectionChecklistItem, InspectionReport
+
+
+class OfficerInspectionManagementTests(TestCase):
+    """
+    Comprehensive test suite for Commit 4 of the Fire Officer Module:
+    - Inspection, InspectionChecklistItem, InspectionReport models
+    - Officer authentication & access control
+    - Inspection scheduling & validation
+    - Inspection queue & detail views
+    - Inspection state machine (Scheduled -> In Progress -> Completed / Cancelled)
+    - Fire safety checklist editing & lock upon completion
+    - Inspection report submission & result choices
+    - Ownership enforcement & dashboard/application-detail integration
+    """
+
+    def setUp(self):
+        self.officer_login_url = reverse('officers:login')
+        self.officer_home_url = reverse('officers:officer_home')
+        self.inspection_list_url = reverse('officers:inspection_list')
+
+        self.officer_password = 'FireOfficer#2026Commit4'
+        self.officer_user, self.officer_profile = create_officer_user(
+            username='officer_commit4',
+            email='commit4@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-C4-001',
+            first_name='Vikram',
+            last_name='Rao',
+            designation='Chief Fire Inspector',
+        )
+
+        self.other_officer_user, self.other_officer_profile = create_officer_user(
+            username='officer_other4',
+            email='other4@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-C4-002',
+            first_name='Meera',
+            last_name='Iyer',
+        )
+
+        self.applicant_password = 'ApplicantPass#Commit4'
+        self.applicant_user = User.objects.create_user(
+            username='applicant_c4',
+            email='applicant4@example.com',
+            password=self.applicant_password,
+            first_name='Anil',
+            last_name='Desai',
+        )
+
+        self.eligible_app = Application.objects.create(
+            applicant=self.applicant_user,
+            full_name='Anil Desai',
+            email='applicant4@example.com',
+            mobile_number='9876543211',
+            building_name='Horizon Plaza',
+            building_type='COMMERCIAL',
+            building_address='100 Anna Salai',
+            city='Chennai',
+            state='Tamil Nadu',
+            pin_code='600002',
+            num_floors=6,
+            builtup_area='3200.00',
+            year_construction=2018,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='New Fire NOC for commercial complex.',
+            status='DOCUMENTS_VERIFIED',
+        )
+
+        self.pending_app = Application.objects.create(
+            applicant=self.applicant_user,
+            full_name='Anil Desai',
+            email='applicant4@example.com',
+            mobile_number='9876543211',
+            building_name='Green Apartments',
+            building_type='RESIDENTIAL',
+            building_address='22 Besant Nagar',
+            city='Chennai',
+            state='Tamil Nadu',
+            pin_code='600090',
+            num_floors=4,
+            builtup_area='1800.00',
+            year_construction=2020,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Residential NOC.',
+            status='PENDING',
+        )
+
+        self.future_date = (timezone.localdate() + datetime.timedelta(days=3)).isoformat()
+        self.past_date = (timezone.localdate() - datetime.timedelta(days=2)).isoformat()
+
+    def _schedule_sample_inspection(self, app=None, officer=None, status=Inspection.STATUS_SCHEDULED):
+        return Inspection.objects.create(
+            application=app or self.eligible_app,
+            officer=officer or self.officer_user,
+            scheduled_date=timezone.localdate() + datetime.timedelta(days=2),
+            scheduled_time=datetime.time(10, 30),
+            location='100 Anna Salai, Chennai',
+            status=status,
+            officer_remarks='Initial inspection scheduled.',
+        )
+
+    # =========================================================================
+    # Model Tests
+    # =========================================================================
+
+    def test_inspection_model_creation_and_choices(self):
+        """Model: Inspection creates properly and exposes expected status choices."""
+        insp = self._schedule_sample_inspection()
+        self.assertEqual(insp.status, Inspection.STATUS_SCHEDULED)
+        self.assertEqual(insp.get_status_display(), 'Scheduled')
+        choices = dict(Inspection.STATUS_CHOICES)
+        self.assertEqual(set(choices.values()), {'Scheduled', 'In Progress', 'Completed', 'Cancelled'})
+        self.assertIn(self.eligible_app.application_id, str(insp))
+
+    def test_checklist_and_report_model_creation(self):
+        """Model: InspectionChecklistItem and InspectionReport create properly."""
+        insp = self._schedule_sample_inspection(status=Inspection.STATUS_IN_PROGRESS)
+        item = InspectionChecklistItem.objects.create(
+            inspection=insp,
+            item_type='EXTINGUISHER_AVAILABLE',
+            status=InspectionChecklistItem.STATUS_COMPLIANT,
+            remarks='CO2 and ABC extinguishers installed on every floor.',
+        )
+        self.assertEqual(item.get_status_display(), 'Compliant')
+
+        report = InspectionReport.objects.create(
+            inspection=insp,
+            overall_result=InspectionReport.RESULT_SATISFACTORY,
+            general_observations='All fire safety provisions verified.',
+            officer_remarks='Recommended for next stage.',
+            completed_at=timezone.now(),
+        )
+        self.assertEqual(report.get_overall_result_display(), 'Satisfactory')
+        self.assertEqual(insp.report, report)
+
+    # =========================================================================
+    # Authentication & Access Control
+    # =========================================================================
+
+    def test_unauthenticated_user_cannot_access_inspections(self):
+        """Auth: Unauthenticated access to inspection routes redirects to officer login."""
+        insp = self._schedule_sample_inspection()
+        for url in [
+            self.inspection_list_url,
+            reverse('officers:schedule_inspection', args=[self.eligible_app.pk]),
+            reverse('officers:inspection_detail', args=[insp.pk]),
+        ]:
+            resp = self.client.get(url)
+            self.assertRedirects(resp, f"{self.officer_login_url}?next={url}")
+
+    def test_non_officer_cannot_access_inspections(self):
+        """Auth: Authenticated applicant is denied access to inspection routes."""
+        self.client.login(username='applicant_c4', password=self.applicant_password)
+        insp = self._schedule_sample_inspection()
+
+        resp_list = self.client.get(self.inspection_list_url)
+        self.assertRedirects(resp_list, self.officer_login_url)
+
+        resp_start = self.client.post(reverse('officers:inspection_start', args=[insp.pk]))
+        self.assertRedirects(resp_start, self.officer_login_url)
+        insp.refresh_from_db()
+        self.assertEqual(insp.status, Inspection.STATUS_SCHEDULED)
+
+    # =========================================================================
+    # Scheduling Tests
+    # =========================================================================
+
+    def test_officer_can_schedule_valid_inspection(self):
+        """Scheduling: Officer schedules valid inspection; officer auto-assigned; app updated."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+        url = reverse('officers:schedule_inspection', args=[self.eligible_app.pk])
+
+        # Also attempt to spoof officer ID in POST — must be ignored
+        resp = self.client.post(url, {
+            'scheduled_date': self.future_date,
+            'scheduled_time': '11:00',
+            'location': '100 Anna Salai Main Gate',
+            'officer_remarks': 'Check hydrant pressure and alarms.',
+            'officer': self.other_officer_user.pk,
+        })
+        insp = Inspection.objects.get(application=self.eligible_app)
+        self.assertRedirects(resp, reverse('officers:inspection_detail', args=[insp.pk]))
+        self.assertEqual(insp.officer, self.officer_user)
+        self.assertNotEqual(insp.officer, self.other_officer_user)
+        self.assertEqual(insp.status, Inspection.STATUS_SCHEDULED)
+        self.assertEqual(insp.checklist_items.count(), 12)
+
+        self.eligible_app.refresh_from_db()
+        self.assertEqual(self.eligible_app.status, 'UNDER_INSPECTION')
+
+    def test_get_schedule_does_not_create_inspection(self):
+        """Scheduling: GET request renders form without modifying database."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+        url = reverse('officers:schedule_inspection', args=[self.eligible_app.pk])
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Inspection.objects.count(), 0)
+
+    def test_ineligible_or_invalid_application_cannot_be_scheduled(self):
+        """Scheduling: Pending/non-existent applications cannot be scheduled."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+
+        # Non-existent application
+        resp_404 = self.client.post(
+            reverse('officers:schedule_inspection', args=[999999]),
+            {'scheduled_date': self.future_date, 'scheduled_time': '10:00'}
+        )
+        self.assertEqual(resp_404.status_code, 404)
+
+        # PENDING application
+        resp_pending = self.client.post(
+            reverse('officers:schedule_inspection', args=[self.pending_app.pk]),
+            {'scheduled_date': self.future_date, 'scheduled_time': '10:00'}
+        )
+        self.assertRedirects(resp_pending, reverse('officers:application_detail', args=[self.pending_app.pk]))
+        self.assertEqual(Inspection.objects.filter(application=self.pending_app).count(), 0)
+
+    def test_past_inspection_cannot_be_scheduled(self):
+        """Scheduling: Past inspection date or past time today is rejected."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+        url = reverse('officers:schedule_inspection', args=[self.eligible_app.pk])
+        resp = self.client.post(url, {
+            'scheduled_date': self.past_date,
+            'scheduled_time': '10:00',
+            'location': '100 Anna Salai',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'cannot be in the past')
+        self.assertEqual(Inspection.objects.count(), 0)
+
+        # Past time today
+        past_dt = timezone.localtime() - datetime.timedelta(minutes=30)
+        if past_dt.date() == timezone.localdate():
+            resp_time = self.client.post(url, {
+                'scheduled_date': timezone.localdate().isoformat(),
+                'scheduled_time': past_dt.time().strftime('%H:%M'),
+                'location': '100 Anna Salai',
+            })
+            self.assertEqual(resp_time.status_code, 200)
+            self.assertContains(resp_time, 'cannot be in the past')
+            self.assertEqual(Inspection.objects.count(), 0)
+
+    # =========================================================================
+    # List & Detail Views
+    # =========================================================================
+
+    def test_inspection_list_and_filter(self):
+        """List: Officer sees inspections and can filter by status."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+        insp_sched = self._schedule_sample_inspection(status=Inspection.STATUS_SCHEDULED)
+        insp_comp = self._schedule_sample_inspection(app=self.pending_app, status=Inspection.STATUS_COMPLETED)
+
+        resp_all = self.client.get(self.inspection_list_url)
+        self.assertEqual(resp_all.status_code, 200)
+        self.assertContains(resp_all, 'Horizon Plaza')
+        self.assertContains(resp_all, 'Green Apartments')
+
+        resp_comp = self.client.get(f"{self.inspection_list_url}?status=COMPLETED")
+        self.assertEqual(resp_comp.status_code, 200)
+        self.assertContains(resp_comp, 'Green Apartments')
+        self.assertNotContains(resp_comp, 'Horizon Plaza')
+        self.assertEqual(insp_sched.status, Inspection.STATUS_SCHEDULED)
+        self.assertEqual(insp_comp.status, Inspection.STATUS_COMPLETED)
+
+    def test_inspection_detail_view(self):
+        """Detail: Officer views full inspection details and 12 checklist items."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+        insp = self._schedule_sample_inspection()
+        resp = self.client.get(reverse('officers:inspection_detail', args=[insp.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertTemplateUsed(resp, 'officers/inspection_detail.html')
+        self.assertContains(resp, 'Horizon Plaza')
+        self.assertContains(resp, 'Fire extinguishers available')
+        self.assertContains(resp, 'Start Inspection')
+
+    # =========================================================================
+    # State Machine Transitions
+    # =========================================================================
+
+    def test_valid_state_transitions(self):
+        """State machine: Scheduled -> In Progress -> Completed, and Scheduled -> Cancelled."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+        insp = self._schedule_sample_inspection()
+
+        # Start
+        self.client.post(reverse('officers:inspection_start', args=[insp.pk]))
+        insp.refresh_from_db()
+        self.assertEqual(insp.status, Inspection.STATUS_IN_PROGRESS)
+        self.assertIsNotNone(insp.started_at)
+
+        # Complete with report
+        self.client.post(reverse('officers:inspection_complete', args=[insp.pk]), {
+            'overall_result': InspectionReport.RESULT_SATISFACTORY,
+            'general_observations': 'Building meets all fire norms.',
+            'officer_remarks': 'Ready for next step.',
+        })
+        insp.refresh_from_db()
+        self.assertEqual(insp.status, Inspection.STATUS_COMPLETED)
+        self.assertIsNotNone(insp.completed_at)
+
+        # Cancel from Scheduled on another inspection
+        insp2 = self._schedule_sample_inspection(app=self.pending_app)
+        self.client.post(reverse('officers:inspection_cancel', args=[insp2.pk]), {
+            'cancel_reason': 'Applicant requested reschedule.',
+        })
+        insp2.refresh_from_db()
+        self.assertEqual(insp2.status, Inspection.STATUS_CANCELLED)
+        self.assertIn('Applicant requested reschedule.', insp2.officer_remarks)
+
+    def test_invalid_state_transitions_rejected(self):
+        """State machine: Invalid transitions (e.g. Completed->Start, Cancelled->Complete) blocked."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+
+        # Scheduled -> Completed directly must fail
+        insp_sched = self._schedule_sample_inspection()
+        self.client.post(reverse('officers:inspection_complete', args=[insp_sched.pk]), {
+            'overall_result': InspectionReport.RESULT_SATISFACTORY,
+            'general_observations': 'Trying to skip start.',
+        })
+        insp_sched.refresh_from_db()
+        self.assertEqual(insp_sched.status, Inspection.STATUS_SCHEDULED)
+
+        # Completed -> Start or Cancel must fail
+        insp_comp = self._schedule_sample_inspection(app=self.pending_app, status=Inspection.STATUS_COMPLETED)
+        self.client.post(reverse('officers:inspection_start', args=[insp_comp.pk]))
+        insp_comp.refresh_from_db()
+        self.assertEqual(insp_comp.status, Inspection.STATUS_COMPLETED)
+        self.client.post(reverse('officers:inspection_cancel', args=[insp_comp.pk]))
+        insp_comp.refresh_from_db()
+        self.assertEqual(insp_comp.status, Inspection.STATUS_COMPLETED)
+
+        # Cancelled -> Start or Complete must fail
+        insp_canc = self._schedule_sample_inspection(status=Inspection.STATUS_CANCELLED)
+        self.client.post(reverse('officers:inspection_start', args=[insp_canc.pk]))
+        insp_canc.refresh_from_db()
+        self.assertEqual(insp_canc.status, Inspection.STATUS_CANCELLED)
+        self.client.post(reverse('officers:inspection_complete', args=[insp_canc.pk]), {
+            'overall_result': InspectionReport.RESULT_SATISFACTORY,
+            'general_observations': 'Trying to complete cancelled.',
+        })
+        insp_canc.refresh_from_db()
+        self.assertEqual(insp_canc.status, Inspection.STATUS_CANCELLED)
+
+    # =========================================================================
+    # Checklist & Report Tests
+    # =========================================================================
+
+    def test_checklist_editable_in_progress_and_locked_when_completed(self):
+        """Checklist: Editable during In Progress (all 3 statuses); read-only when Completed."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+        insp = self._schedule_sample_inspection(status=Inspection.STATUS_IN_PROGRESS)
+        save_url = reverse('officers:inspection_checklist_save', args=[insp.pk])
+
+        self.client.post(save_url, {
+            'checklist_EXTINGUISHER_AVAILABLE_status': InspectionChecklistItem.STATUS_COMPLIANT,
+            'checklist_EXTINGUISHER_AVAILABLE_remarks': 'Checked 12 units.',
+            'checklist_ALARM_FUNCTIONAL_status': InspectionChecklistItem.STATUS_NON_COMPLIANT,
+            'checklist_ALARM_FUNCTIONAL_remarks': 'Panel battery dead.',
+            'checklist_HYDRANT_WATER_status': InspectionChecklistItem.STATUS_NOT_APPLICABLE,
+        })
+
+        ext_item = insp.checklist_items.get(item_type='EXTINGUISHER_AVAILABLE')
+        alarm_item = insp.checklist_items.get(item_type='ALARM_FUNCTIONAL')
+        hyd_item = insp.checklist_items.get(item_type='HYDRANT_WATER')
+        self.assertEqual(ext_item.status, InspectionChecklistItem.STATUS_COMPLIANT)
+        self.assertEqual(ext_item.remarks, 'Checked 12 units.')
+        self.assertEqual(alarm_item.status, InspectionChecklistItem.STATUS_NON_COMPLIANT)
+        self.assertEqual(hyd_item.status, InspectionChecklistItem.STATUS_NOT_APPLICABLE)
+
+        # Complete inspection
+        self.client.post(reverse('officers:inspection_complete', args=[insp.pk]), {
+            'overall_result': InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+            'general_observations': 'Alarm panel battery requires replacement.',
+        })
+        insp.refresh_from_db()
+        self.assertEqual(insp.status, Inspection.STATUS_COMPLETED)
+
+        # Attempt to modify checklist after completion — must be ignored
+        self.client.post(save_url, {
+            'checklist_ALARM_FUNCTIONAL_status': InspectionChecklistItem.STATUS_COMPLIANT,
+            'checklist_ALARM_FUNCTIONAL_remarks': 'Tampered after completion',
+        })
+        alarm_item.refresh_from_db()
+        self.assertEqual(alarm_item.status, InspectionChecklistItem.STATUS_NON_COMPLIANT)
+        self.assertEqual(alarm_item.remarks, 'Panel battery dead.')
+
+    def test_report_results_and_required_fields_validation(self):
+        """Report: Satisfactory, Unsatisfactory, Requires Rectification work; missing fields blocked."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+
+        # Missing general_observations fails to complete
+        insp1 = self._schedule_sample_inspection(status=Inspection.STATUS_IN_PROGRESS)
+        self.client.post(reverse('officers:inspection_complete', args=[insp1.pk]), {
+            'overall_result': InspectionReport.RESULT_SATISFACTORY,
+            'general_observations': '',
+        })
+        insp1.refresh_from_db()
+        self.assertEqual(insp1.status, Inspection.STATUS_IN_PROGRESS)
+
+        # Unsatisfactory works
+        self.client.post(reverse('officers:inspection_complete', args=[insp1.pk]), {
+            'overall_result': InspectionReport.RESULT_UNSATISFACTORY,
+            'general_observations': 'Major safety exits locked.',
+        })
+        insp1.refresh_from_db()
+        self.assertEqual(insp1.status, Inspection.STATUS_COMPLETED)
+        self.assertEqual(insp1.report.overall_result, InspectionReport.RESULT_UNSATISFACTORY)
+
+    # =========================================================================
+    # Security / Ownership & Integration Tests
+    # =========================================================================
+
+    def test_other_officer_cannot_modify_assigned_inspection(self):
+        """Security: Another officer cannot start/edit/complete/cancel an assigned inspection."""
+        insp = self._schedule_sample_inspection(officer=self.officer_user, status=Inspection.STATUS_SCHEDULED)
+
+        self.client.login(username='officer_other4', password=self.officer_password)
+        self.client.post(reverse('officers:inspection_start', args=[insp.pk]))
+        insp.refresh_from_db()
+        self.assertEqual(insp.status, Inspection.STATUS_SCHEDULED)
+
+    def test_dashboard_stats_and_application_detail_integration(self):
+        """Integration: Dashboard inspection counts and application detail inspection card reflect DB."""
+        self.client.login(username='officer_commit4', password=self.officer_password)
+
+        # Before scheduling: application detail shows Schedule Inspection link
+        app_detail_url = reverse('officers:application_detail', args=[self.eligible_app.pk])
+        resp_before = self.client.get(app_detail_url)
+        self.assertContains(resp_before, 'Schedule Inspection')
+
+        # Schedule 1 + complete 1
+        insp_sched = self._schedule_sample_inspection(status=Inspection.STATUS_SCHEDULED)
+        self._schedule_sample_inspection(app=self.pending_app, status=Inspection.STATUS_COMPLETED)
+
+        # Application detail now shows View Inspection
+        resp_after = self.client.get(app_detail_url)
+        self.assertContains(resp_after, 'View Inspection')
+        self.assertContains(resp_after, reverse('officers:inspection_detail', args=[insp_sched.pk]))
+
+        # Dashboard counts match DB
+        resp_dash = self.client.get(self.officer_home_url)
+        self.assertEqual(resp_dash.status_code, 200)
+        self.assertEqual(resp_dash.context['stats']['scheduled_inspections'], 1)
+        self.assertEqual(resp_dash.context['stats']['completed_inspections'], 1)
+        self.assertContains(resp_dash, 'Upcoming Inspections')

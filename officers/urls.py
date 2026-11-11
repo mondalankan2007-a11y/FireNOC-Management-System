@@ -25,4 +25,13 @@ urlpatterns = [
         views.application_review,
         name='application_review'
     ),
+
+    # Inspection Management Routes (Commit 4)
+    path('inspections/', views.inspection_list, name='inspection_list'),
+    path('inspections/schedule/<int:app_id>/', views.schedule_inspection, name='schedule_inspection'),
+    path('inspections/<int:inspection_id>/', views.inspection_detail, name='inspection_detail'),
+    path('inspections/<int:inspection_id>/start/', views.inspection_start, name='inspection_start'),
+    path('inspections/<int:inspection_id>/complete/', views.inspection_complete, name='inspection_complete'),
+    path('inspections/<int:inspection_id>/cancel/', views.inspection_cancel, name='inspection_cancel'),
+    path('inspections/<int:inspection_id>/checklist/save/', views.inspection_checklist_save, name='inspection_checklist_save'),
 ]

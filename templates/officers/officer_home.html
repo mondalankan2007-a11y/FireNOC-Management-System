@@ -49,13 +49,13 @@
                             <i class="bi bi-file-earmark-text me-2 text-primary"></i>Applications
                         </a>
 
-                        <!-- 3. Document Verification (Placeholder for future commit) -->
-                        <a class="nav-link" href="#document-verification" data-bs-toggle="tooltip" title="Document Verification Audit (Commit 4)">
+                        <!-- 3. Document Verification (Functional - Commit 3) -->
+                        <a class="nav-link" href="{% url 'officers:application_list' %}">
                             <i class="bi bi-file-earmark-check me-2 text-info"></i>Document Verification
                         </a>
 
-                        <!-- 4. Inspections (Placeholder for future commit) -->
-                        <a class="nav-link" href="#inspections" data-bs-toggle="tooltip" title="Physical Site Inspections (Commit 5)">
+                        <!-- 4. Inspections (Functional - Commit 4) -->
+                        <a class="nav-link" href="{% url 'officers:inspection_list' %}">
                             <i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections
                         </a>
 
@@ -268,6 +268,71 @@
                                             <p class="text-muted small mb-0 mx-auto" style="max-width: 520px;">
                                                 Applications submitted by building owners will appear here for desk scrutiny, document verification, and on-site inspection scheduling.
                                             </p>
+                                        </td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3b. Upcoming Inspections Section -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-calendar-event text-warning fs-5 me-2"></i>
+                        <h5 class="fw-bold mb-0 text-dark">Upcoming Inspections</h5>
+                    </div>
+                    <a href="{% url 'officers:inspection_list' %}" class="btn btn-sm btn-outline-secondary">
+                        View All <i class="bi bi-arrow-right ms-1"></i>
+                    </a>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th scope="col" class="ps-3">Application ID</th>
+                                    <th scope="col">Building Name</th>
+                                    <th scope="col">Date &amp; Time</th>
+                                    <th scope="col">Assigned Officer</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col" class="text-end pe-3">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if upcoming_inspections %}
+                                    {% for insp in upcoming_inspections %}
+                                    <tr>
+                                        <td class="ps-3 fw-bold text-dark">{{ insp.application.application_id }}</td>
+                                        <td>
+                                            <div class="fw-semibold">{{ insp.application.building_name }}</div>
+                                            <small class="text-muted">{{ insp.location|default:insp.application.building_address|truncatechars:40 }}</small>
+                                        </td>
+                                        <td>
+                                            <div class="fw-semibold">{{ insp.scheduled_date|date:"d M Y" }}</div>
+                                            <small class="text-muted">{{ insp.scheduled_time|time:"H:i" }}</small>
+                                        </td>
+                                        <td><small>{{ insp.officer.get_full_name|default:insp.officer.username|default:"—" }}</small></td>
+                                        <td>
+                                            {% if insp.status == 'SCHEDULED' %}
+                                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Scheduled</span>
+                                            {% elif insp.status == 'IN_PROGRESS' %}
+                                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">In Progress</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end pe-3">
+                                            <a href="{% url 'officers:inspection_detail' insp.pk %}" class="btn btn-sm btn-outline-warning text-dark fw-semibold">
+                                                Inspect
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="6" class="text-center py-4 text-muted small">
+                                            <i class="bi bi-calendar-x me-1"></i>No upcoming scheduled inspections at this time.
                                         </td>
                                     </tr>
                                 {% endif %}
