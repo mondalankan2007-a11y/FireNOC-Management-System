@@ -1,5 +1,14 @@
 from django.contrib import admin
-from .models import OfficerProfile, DocumentVerification, ApplicationReview, Inspection, InspectionChecklistItem, InspectionReport
+from .models import (
+    OfficerProfile,
+    DocumentVerification,
+    ApplicationReview,
+    Inspection,
+    InspectionChecklistItem,
+    InspectionReport,
+    Deficiency,
+    DeficiencyRectification,
+)
 
 
 @admin.register(OfficerProfile)
@@ -49,3 +58,23 @@ class InspectionReportAdmin(admin.ModelAdmin):
     list_display = ('inspection', 'overall_result', 'completed_at', 'created_at')
     list_filter = ('overall_result',)
     search_fields = ('inspection__application__application_id', 'general_observations', 'officer_remarks')
+
+
+class DeficiencyRectificationInline(admin.TabularInline):
+    model = DeficiencyRectification
+    extra = 0
+
+
+@admin.register(Deficiency)
+class DeficiencyAdmin(admin.ModelAdmin):
+    list_display = ('pk', 'title', 'application', 'inspection', 'severity', 'status', 'reported_by', 'created_at')
+    list_filter = ('status', 'severity')
+    search_fields = ('title', 'description', 'application__application_id', 'application__building_name')
+    inlines = [DeficiencyRectificationInline]
+
+
+@admin.register(DeficiencyRectification)
+class DeficiencyRectificationAdmin(admin.ModelAdmin):
+    list_display = ('pk', 'deficiency', 'status', 'submitted_by', 'submitted_at', 'reviewed_by')
+    list_filter = ('status',)
+    search_fields = ('deficiency__title', 'description', 'review_remarks')

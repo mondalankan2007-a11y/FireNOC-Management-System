@@ -1,5 +1,6 @@
 from functools import wraps
 import datetime
+import os
 from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
@@ -10,7 +11,17 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from applicants.models import Application, ApplicationDocument
-from .models import OfficerProfile, DocumentVerification, ApplicationReview, Inspection, InspectionChecklistItem, InspectionReport
+from .models import (
+    OfficerProfile,
+    DocumentVerification,
+    ApplicationReview,
+    Inspection,
+    InspectionChecklistItem,
+    InspectionReport,
+    Deficiency,
+    DeficiencyRectification,
+    get_recommendation_eligibility,
+)
 
 
 def is_officer(user):
@@ -55,7 +66,8 @@ def officer_required(view_func):
 def get_officer_dashboard_data(user):
     """
     Retrieve officer dashboard statistics and pending applications.
-    Queries database-backed values from the Application and Inspection models.
+    Queries database-backed values from the Application, Inspection,
+    and Deficiency models.
     """
     stats = {
         'total_applications': 0,
@@ -63,6 +75,10 @@ def get_officer_dashboard_data(user):
         'applications_under_verification': 0,
         'scheduled_inspections': 0,
         'completed_inspections': 0,
+        'open_deficiencies': 0,
+        'pending_rectification_verification': 0,
+        'verified_deficiencies': 0,
+        'applications_ready_for_recommendation': 0,
     }
     recent_applications = []
 
@@ -84,6 +100,32 @@ def get_officer_dashboard_data(user):
     stats['completed_inspections'] = Inspection.objects.filter(
         status=Inspection.STATUS_COMPLETED
     ).count()
+
+    # Deficiency metrics
+    stats['open_deficiencies'] = Deficiency.objects.filter(
+        status=Deficiency.STATUS_OPEN
+    ).count()
+    stats['pending_rectification_verification'] = DeficiencyRectification.objects.filter(
+        status__in=[
+            DeficiencyRectification.STATUS_SUBMITTED,
+            DeficiencyRectification.STATUS_UNDER_REVIEW,
+        ]
+    ).count()
+    stats['verified_deficiencies'] = Deficiency.objects.filter(
+        status=Deficiency.STATUS_VERIFIED
+    ).count()
+
+    # Applications ready for officer recommendation
+    ready_count = 0
+    candidate_apps = Application.objects.prefetch_related(
+        'documents__verification',
+        'inspections__report',
+        'deficiencies',
+    ).all()
+    for app in candidate_apps:
+        if get_recommendation_eligibility(app)['is_eligible']:
+            ready_count += 1
+    stats['applications_ready_for_recommendation'] = ready_count
 
     recent_applications = list(Application.objects.order_by('-created_at')[:5])
 
@@ -221,6 +263,34 @@ def application_detail(request, pk):
         and not has_active_inspection
     )
 
+    deficiencies = list(
+        application.deficiencies
+        .select_related('inspection', 'reported_by')
+        .order_by('-created_at')
+    )
+    deficiency_stats = {
+        'total': len(deficiencies),
+        'open': sum(1 for d in deficiencies if d.status == Deficiency.STATUS_OPEN),
+        'submitted': sum(1 for d in deficiencies if d.status == Deficiency.STATUS_SUBMITTED),
+        'verified': sum(1 for d in deficiencies if d.status == Deficiency.STATUS_VERIFIED),
+        'closed': sum(1 for d in deficiencies if d.status == Deficiency.STATUS_CLOSED),
+        'critical': sum(1 for d in deficiencies if d.severity == Deficiency.SEVERITY_CRITICAL),
+    }
+
+    eligibility = get_recommendation_eligibility(application)
+    latest_bad_inspection = (
+        application.inspections
+        .filter(
+            status=Inspection.STATUS_COMPLETED,
+            report__overall_result__in=[
+                InspectionReport.RESULT_UNSATISFACTORY,
+                InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+            ],
+        )
+        .order_by('-created_at')
+        .first()
+    )
+
     context = {
         'application': application,
         'documents': doc_list,
@@ -233,6 +303,11 @@ def application_detail(request, pk):
         'latest_inspection': latest_inspection,
         'has_active_inspection': has_active_inspection,
         'can_schedule_inspection': can_schedule_inspection,
+        'deficiencies': deficiencies,
+        'deficiency_stats': deficiency_stats,
+        'eligibility': eligibility,
+        'latest_bad_inspection': latest_bad_inspection,
+        'recommendation_choices': ApplicationReview.RECOMMENDATION_CHOICES,
         'officer': request.user,
         'profile': profile,
     }
@@ -675,11 +750,24 @@ def inspection_detail(request, inspection_id):
     )
     report = getattr(inspection, 'report', None)
     profile = getattr(request.user, 'officer_profile', None)
+    deficiencies = list(
+        inspection.deficiencies.select_related('reported_by').order_by('-created_at')
+    )
+    can_create_deficiency = (
+        inspection.status == Inspection.STATUS_COMPLETED
+        and report is not None
+        and report.overall_result in (
+            InspectionReport.RESULT_UNSATISFACTORY,
+            InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+        )
+    )
 
     context = {
         'inspection': inspection,
         'checklist_items': checklist_items,
         'report': report,
+        'deficiencies': deficiencies,
+        'can_create_deficiency': can_create_deficiency,
         'can_modify': _can_modify_inspection(request.user, inspection),
         'officer': request.user,
         'profile': profile,
@@ -870,3 +958,411 @@ def _save_checklist(request, inspection):
                 updated = True
         if updated:
             item.save(update_fields=['status', 'remarks', 'updated_at'])
+
+
+# ===========================================================================
+# Commit 5 — Deficiency, Rectification & Officer Recommendation Views
+# ===========================================================================
+
+ALLOWED_EVIDENCE_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png'}
+MAX_EVIDENCE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+@officer_required
+def deficiency_list(request):
+    """
+    Officer Deficiencies Queue view.
+    Supports filtering by status and severity, and searching by Application ID,
+    applicant name, or deficiency title.
+    """
+    status_filter = request.GET.get('status', '').strip().upper()
+    severity_filter = request.GET.get('severity', '').strip().upper()
+    search_query = request.GET.get('q', '').strip()
+
+    qs = (
+        Deficiency.objects
+        .select_related('application', 'inspection', 'reported_by')
+        .all()
+    )
+
+    valid_statuses = {s[0] for s in Deficiency.STATUS_CHOICES}
+    if status_filter in valid_statuses:
+        qs = qs.filter(status=status_filter)
+    else:
+        status_filter = ''
+
+    valid_severities = {s[0] for s in Deficiency.SEVERITY_CHOICES}
+    if severity_filter in valid_severities:
+        qs = qs.filter(severity=severity_filter)
+    else:
+        severity_filter = ''
+
+    if search_query:
+        qs = qs.filter(
+            models.Q(application__application_id__icontains=search_query) |
+            models.Q(application__full_name__icontains=search_query) |
+            models.Q(title__icontains=search_query)
+        )
+
+    profile = getattr(request.user, 'officer_profile', None)
+    context = {
+        'deficiencies': qs,
+        'total_count': qs.count(),
+        'status_filter': status_filter,
+        'severity_filter': severity_filter,
+        'search_query': search_query,
+        'STATUS_CHOICES': Deficiency.STATUS_CHOICES,
+        'SEVERITY_CHOICES': Deficiency.SEVERITY_CHOICES,
+        'officer': request.user,
+        'profile': profile,
+    }
+    return render(request, 'officers/deficiency_list.html', context)
+
+
+@officer_required
+def deficiency_create(request, inspection_id):
+    """
+    Create a deficiency from a Completed inspection whose report is
+    Unsatisfactory or Requires Rectification.
+    Never trusts reported_by or application from POST data.
+    """
+    inspection = get_object_or_404(
+        Inspection.objects.select_related('application'),
+        pk=inspection_id
+    )
+    report = getattr(inspection, 'report', None)
+    profile = getattr(request.user, 'officer_profile', None)
+
+    is_eligible_inspection = (
+        inspection.status == Inspection.STATUS_COMPLETED
+        and report is not None
+        and report.overall_result in (
+            InspectionReport.RESULT_UNSATISFACTORY,
+            InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+        )
+    )
+    if not is_eligible_inspection:
+        messages.error(
+            request,
+            "Deficiencies can only be created for completed inspections with an "
+            "'Unsatisfactory' or 'Requires Rectification' report."
+        )
+        return redirect('officers:inspection_detail', inspection_id=inspection.pk)
+
+    if request.method == 'POST':
+        title = request.POST.get('title', '').strip()
+        description = request.POST.get('description', '').strip()
+        severity = request.POST.get('severity', '').strip().upper()
+        officer_remarks = request.POST.get('officer_remarks', '').strip()
+
+        errors = []
+        if not title:
+            errors.append("Deficiency title is required.")
+        if not description:
+            errors.append("Deficiency description is required.")
+        valid_severities = {s[0] for s in Deficiency.SEVERITY_CHOICES}
+        if severity not in valid_severities:
+            errors.append("Please select a valid severity level.")
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
+            return render(request, 'officers/deficiency_create.html', {
+                'inspection': inspection,
+                'application': inspection.application,
+                'report': report,
+                'SEVERITY_CHOICES': Deficiency.SEVERITY_CHOICES,
+                'officer': request.user,
+                'profile': profile,
+                'form_data': {
+                    'title': title,
+                    'description': description,
+                    'severity': severity,
+                    'officer_remarks': officer_remarks,
+                },
+            })
+
+        deficiency = Deficiency.objects.create(
+            application=inspection.application,
+            inspection=inspection,
+            reported_by=request.user,
+            title=title,
+            description=description,
+            severity=severity,
+            status=Deficiency.STATUS_OPEN,
+            officer_remarks=officer_remarks,
+        )
+        messages.success(request, f"Deficiency DEF-{deficiency.pk} '{deficiency.title}' logged successfully.")
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency.pk)
+
+    return render(request, 'officers/deficiency_create.html', {
+        'inspection': inspection,
+        'application': inspection.application,
+        'report': report,
+        'SEVERITY_CHOICES': Deficiency.SEVERITY_CHOICES,
+        'officer': request.user,
+        'profile': profile,
+        'form_data': {
+            'title': '',
+            'description': '',
+            'severity': Deficiency.SEVERITY_MAJOR,
+            'officer_remarks': '',
+        },
+    })
+
+
+@officer_required
+def deficiency_detail(request, deficiency_id):
+    """
+    Display full details of a Deficiency, associated Application & Inspection,
+    rectification submissions, and state-machine actions.
+    """
+    deficiency = get_object_or_404(
+        Deficiency.objects.select_related('application', 'inspection', 'reported_by', 'closed_by'),
+        pk=deficiency_id
+    )
+    inspection_report = getattr(deficiency.inspection, 'report', None)
+    rectifications = list(
+        deficiency.rectifications.select_related('submitted_by', 'reviewed_by').order_by('-submitted_at')
+    )
+    pending_rectification = next(
+        (r for r in rectifications if r.status in (DeficiencyRectification.STATUS_SUBMITTED, DeficiencyRectification.STATUS_UNDER_REVIEW)),
+        None
+    )
+    profile = getattr(request.user, 'officer_profile', None)
+
+    context = {
+        'deficiency': deficiency,
+        'application': deficiency.application,
+        'inspection': deficiency.inspection,
+        'inspection_report': inspection_report,
+        'rectifications': rectifications,
+        'pending_rectification': pending_rectification,
+        'officer': request.user,
+        'profile': profile,
+    }
+    return render(request, 'officers/deficiency_detail.html', context)
+
+
+@officer_required
+def deficiency_rectify(request, deficiency_id):
+    """
+    Record a rectification submission for an Open deficiency and transition
+    Deficiency: Open -> Submitted for Verification.
+    Validates optional evidence file type and size.
+    """
+    if request.method != 'POST':
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    deficiency = get_object_or_404(Deficiency, pk=deficiency_id)
+
+    if deficiency.is_closed or not deficiency.can_transition_to(Deficiency.STATUS_SUBMITTED):
+        messages.error(
+            request,
+            f"Cannot submit rectification: deficiency is currently '{deficiency.get_status_display()}'."
+        )
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    description = request.POST.get('description', '').strip()
+    evidence_file = request.FILES.get('evidence_file')
+
+    if not description:
+        messages.error(request, "Rectification description is required.")
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    if evidence_file is not None:
+        ext = os.path.splitext(evidence_file.name)[1].lower()
+        if ext not in ALLOWED_EVIDENCE_EXTENSIONS:
+            messages.error(
+                request,
+                "Invalid evidence file format. Allowed formats: PDF, JPG, JPEG, PNG."
+            )
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        if evidence_file.size > MAX_EVIDENCE_SIZE_BYTES:
+            messages.error(
+                request,
+                "Evidence file size exceeds the 5 MB limit."
+            )
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    DeficiencyRectification.objects.create(
+        deficiency=deficiency,
+        submitted_by=request.user,
+        description=description,
+        evidence_file=evidence_file,
+        status=DeficiencyRectification.STATUS_SUBMITTED,
+    )
+
+    deficiency.status = Deficiency.STATUS_SUBMITTED
+    deficiency.save(update_fields=['status', 'updated_at'])
+
+    messages.success(request, "Rectification submitted for verification.")
+    return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+
+@officer_required
+def rectification_review(request, deficiency_id, rect_id):
+    """
+    Officer reviews a submitted rectification (Accept or Reject).
+    - Accept: Deficiency Submitted for Verification -> Verified
+    - Reject: Deficiency Submitted for Verification -> Rejected -> Open
+    Never trusts reviewed_by from POST data.
+    """
+    if request.method != 'POST':
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    deficiency = get_object_or_404(Deficiency, pk=deficiency_id)
+    rectification = get_object_or_404(DeficiencyRectification, pk=rect_id, deficiency=deficiency)
+
+    if deficiency.is_closed or deficiency.status != Deficiency.STATUS_SUBMITTED:
+        messages.error(
+            request,
+            f"Cannot review rectification: deficiency status is '{deficiency.get_status_display()}'."
+        )
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    action = request.POST.get('action', '').strip().upper()
+    review_remarks = request.POST.get('review_remarks', '').strip()
+    now = timezone.now()
+
+    if action == 'ACCEPT':
+        if not deficiency.can_transition_to(Deficiency.STATUS_VERIFIED):
+            messages.error(request, "Invalid state transition for acceptance.")
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+        rectification.status = DeficiencyRectification.STATUS_ACCEPTED
+        rectification.reviewed_by = request.user
+        rectification.reviewed_at = now
+        rectification.review_remarks = review_remarks or 'Rectification verified and accepted.'
+        rectification.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_remarks'])
+
+        deficiency.status = Deficiency.STATUS_VERIFIED
+        if review_remarks:
+            deficiency.officer_remarks = review_remarks
+        deficiency.save(update_fields=['status', 'officer_remarks', 'updated_at'])
+
+        messages.success(request, f"Rectification accepted. DEF-{deficiency.pk} is now Verified.")
+
+    elif action == 'REJECT':
+        if not review_remarks:
+            messages.error(request, "Please provide review remarks explaining why the rectification was rejected.")
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+        if not deficiency.can_transition_to(Deficiency.STATUS_REJECTED):
+            messages.error(request, "Invalid state transition for rejection.")
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+        rectification.status = DeficiencyRectification.STATUS_REJECTED
+        rectification.reviewed_by = request.user
+        rectification.reviewed_at = now
+        rectification.review_remarks = review_remarks
+        rectification.save(update_fields=['status', 'reviewed_by', 'reviewed_at', 'review_remarks'])
+
+        # Submitted for Verification -> Rejected -> Open so applicant can resubmit
+        deficiency.status = Deficiency.STATUS_REJECTED
+        deficiency.officer_remarks = review_remarks
+        deficiency.save(update_fields=['status', 'officer_remarks', 'updated_at'])
+
+        if deficiency.can_transition_to(Deficiency.STATUS_OPEN):
+            deficiency.status = Deficiency.STATUS_OPEN
+            deficiency.save(update_fields=['status', 'updated_at'])
+
+        messages.warning(
+            request,
+            f"Rectification rejected. DEF-{deficiency.pk} has been reopened for further rectification."
+        )
+    else:
+        messages.error(request, "Invalid review action specified.")
+
+    return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+
+@officer_required
+def deficiency_reopen(request, deficiency_id):
+    """Transition a Rejected deficiency back to Open (POST only)."""
+    if request.method != 'POST':
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    deficiency = get_object_or_404(Deficiency, pk=deficiency_id)
+    if not deficiency.can_transition_to(Deficiency.STATUS_OPEN):
+        messages.error(
+            request,
+            f"Cannot reopen deficiency from '{deficiency.get_status_display()}'."
+        )
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    deficiency.status = Deficiency.STATUS_OPEN
+    deficiency.save(update_fields=['status', 'updated_at'])
+    messages.info(request, f"DEF-{deficiency.pk} reopened.")
+    return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+
+@officer_required
+def deficiency_close(request, deficiency_id):
+    """
+    Close a Verified deficiency (Verified -> Closed).
+    Sets resolved_at and closed_by. Closed deficiencies become read-only.
+    """
+    if request.method != 'POST':
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    deficiency = get_object_or_404(Deficiency, pk=deficiency_id)
+    if not deficiency.can_transition_to(Deficiency.STATUS_CLOSED):
+        messages.error(
+            request,
+            f"Cannot close deficiency: current status is '{deficiency.get_status_display()}'. "
+            "Only 'Verified' deficiencies can be closed."
+        )
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+    deficiency.status = Deficiency.STATUS_CLOSED
+    deficiency.resolved_at = timezone.now()
+    deficiency.closed_by = request.user
+    deficiency.save(update_fields=['status', 'resolved_at', 'closed_by', 'updated_at'])
+
+    messages.success(request, f"DEF-{deficiency.pk} has been closed and marked resolved.")
+    return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+
+
+@officer_required
+def application_recommend(request, app_id):
+    """
+    Record Officer Recommendation for an Application
+    (Pending / Requires Rectification / Recommended for Approval / Not Recommended).
+    Does NOT issue final Fire NOC or perform Admin approval.
+    Enforces get_recommendation_eligibility() for 'Recommended for Approval'.
+    """
+    if request.method != 'POST':
+        return redirect('officers:application_detail', pk=app_id)
+
+    application = get_object_or_404(Application, pk=app_id)
+    recommendation = request.POST.get('recommendation', '').strip().upper()
+    recommendation_remarks = request.POST.get('recommendation_remarks', '').strip()
+
+    valid_recommendations = {r[0] for r in ApplicationReview.RECOMMENDATION_CHOICES}
+    if recommendation not in valid_recommendations:
+        messages.error(request, "Invalid recommendation selection.")
+        return redirect('officers:application_detail', pk=app_id)
+
+    if recommendation == ApplicationReview.RECOMMENDATION_APPROVED:
+        eligibility = get_recommendation_eligibility(application)
+        if not eligibility['is_eligible']:
+            reasons = "; ".join(eligibility['blocking_reasons'])
+            messages.error(
+                request,
+                f"Application is not eligible for 'Recommended for Approval': {reasons}."
+            )
+            return redirect('officers:application_detail', pk=app_id)
+
+    review, _ = ApplicationReview.objects.get_or_create(application=application)
+    review.recommendation = recommendation
+    review.recommendation_remarks = recommendation_remarks
+    review.recommended_by = request.user
+    review.recommended_at = timezone.now()
+    review.save(update_fields=['recommendation', 'recommendation_remarks', 'recommended_by', 'recommended_at'])
+
+    messages.success(
+        request,
+        f"Officer recommendation updated to '{review.get_recommendation_display()}'."
+    )
+    return redirect('officers:application_detail', pk=app_id)

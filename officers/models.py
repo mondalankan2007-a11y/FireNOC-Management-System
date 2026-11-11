@@ -100,12 +100,24 @@ class DocumentVerification(models.Model):
 
 class ApplicationReview(models.Model):
     """
-    Preliminary Officer review record for an Application.
-    Tracks review status and officer notes prior to inspection scheduling.
+    Officer review and recommendation record for an Application.
+    Tracks desk review status, officer notes, and recommendation prior to NOC issuance.
     """
     REVIEW_STATUS_CHOICES = [
         ('UNDER_REVIEW', 'Under Review'),
         ('DOCUMENTS_VERIFIED', 'Documents Verified / Ready for Inspection'),
+    ]
+
+    RECOMMENDATION_PENDING = 'PENDING'
+    RECOMMENDATION_REQUIRES_RECTIFICATION = 'REQUIRES_RECTIFICATION'
+    RECOMMENDATION_APPROVED = 'RECOMMENDED_FOR_APPROVAL'
+    RECOMMENDATION_NOT_RECOMMENDED = 'NOT_RECOMMENDED'
+
+    RECOMMENDATION_CHOICES = [
+        (RECOMMENDATION_PENDING, 'Pending'),
+        (RECOMMENDATION_REQUIRES_RECTIFICATION, 'Requires Rectification'),
+        (RECOMMENDATION_APPROVED, 'Recommended for Approval'),
+        (RECOMMENDATION_NOT_RECOMMENDED, 'Not Recommended'),
     ]
 
     application = models.OneToOneField(
@@ -130,6 +142,25 @@ class ApplicationReview(models.Model):
         default='',
         help_text="Desk review observations or inspection readiness remarks"
     )
+    recommendation = models.CharField(
+        max_length=30,
+        choices=RECOMMENDATION_CHOICES,
+        default=RECOMMENDATION_PENDING,
+        help_text="Officer recommendation for final NOC decision"
+    )
+    recommendation_remarks = models.TextField(
+        blank=True,
+        default='',
+        help_text="Justification or observations for the officer recommendation"
+    )
+    recommended_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='application_recommendations'
+    )
+    recommended_at = models.DateTimeField(null=True, blank=True)
     reviewed_at = models.DateTimeField(auto_now=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -316,6 +347,252 @@ class InspectionReport(models.Model):
             f"Report for Inspection #{self.inspection.pk} — "
             f"{self.get_overall_result_display()}"
         )
+
+
+class Deficiency(models.Model):
+    """
+    Fire safety deficiency identified during a site inspection.
+    Supports multiple deficiencies per inspection and per application.
+    Enforces a strict verification and closure state machine.
+    """
+    SEVERITY_MINOR = 'MINOR'
+    SEVERITY_MAJOR = 'MAJOR'
+    SEVERITY_CRITICAL = 'CRITICAL'
+
+    SEVERITY_CHOICES = [
+        (SEVERITY_MINOR, 'Minor'),
+        (SEVERITY_MAJOR, 'Major'),
+        (SEVERITY_CRITICAL, 'Critical'),
+    ]
+
+    STATUS_OPEN = 'OPEN'
+    STATUS_SUBMITTED = 'SUBMITTED_FOR_VERIFICATION'
+    STATUS_VERIFIED = 'VERIFIED'
+    STATUS_REJECTED = 'REJECTED'
+    STATUS_CLOSED = 'CLOSED'
+
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'),
+        (STATUS_SUBMITTED, 'Submitted for Verification'),
+        (STATUS_VERIFIED, 'Verified'),
+        (STATUS_REJECTED, 'Rejected'),
+        (STATUS_CLOSED, 'Closed'),
+    ]
+
+    VALID_TRANSITIONS = {
+        STATUS_OPEN: {STATUS_SUBMITTED},
+        STATUS_SUBMITTED: {STATUS_VERIFIED, STATUS_REJECTED},
+        STATUS_REJECTED: {STATUS_OPEN},
+        STATUS_VERIFIED: {STATUS_CLOSED},
+        STATUS_CLOSED: set(),
+    }
+
+    application = models.ForeignKey(
+        'applicants.Application',
+        on_delete=models.CASCADE,
+        related_name='deficiencies'
+    )
+    inspection = models.ForeignKey(
+        Inspection,
+        on_delete=models.CASCADE,
+        related_name='deficiencies'
+    )
+    reported_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reported_deficiencies'
+    )
+    closed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='closed_deficiencies'
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    severity = models.CharField(
+        max_length=20,
+        choices=SEVERITY_CHOICES,
+        default=SEVERITY_MAJOR
+    )
+    status = models.CharField(
+        max_length=30,
+        choices=STATUS_CHOICES,
+        default=STATUS_OPEN
+    )
+    officer_remarks = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Deficiency'
+        verbose_name_plural = 'Deficiencies'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"DEF-{self.pk}: {self.title} [{self.get_status_display()}]"
+
+    def can_transition_to(self, new_status):
+        """Return True if transitioning from current status to new_status is valid."""
+        return new_status in self.VALID_TRANSITIONS.get(self.status, set())
+
+    @property
+    def is_closed(self):
+        return self.status == self.STATUS_CLOSED
+
+
+class DeficiencyRectification(models.Model):
+    """
+    Rectification evidence submitted for a Deficiency and reviewed by an Officer.
+    """
+    STATUS_SUBMITTED = 'SUBMITTED'
+    STATUS_UNDER_REVIEW = 'UNDER_REVIEW'
+    STATUS_ACCEPTED = 'ACCEPTED'
+    STATUS_REJECTED = 'REJECTED'
+
+    STATUS_CHOICES = [
+        (STATUS_SUBMITTED, 'Submitted'),
+        (STATUS_UNDER_REVIEW, 'Under Review'),
+        (STATUS_ACCEPTED, 'Accepted'),
+        (STATUS_REJECTED, 'Rejected'),
+    ]
+
+    deficiency = models.ForeignKey(
+        Deficiency,
+        on_delete=models.CASCADE,
+        related_name='rectifications'
+    )
+    submitted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='submitted_rectifications'
+    )
+    description = models.TextField()
+    evidence_file = models.FileField(
+        upload_to='rectification_evidence/%Y/%m/',
+        blank=True,
+        null=True
+    )
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    reviewed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_rectifications'
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_remarks = models.TextField(blank=True, default='')
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_SUBMITTED
+    )
+
+    class Meta:
+        verbose_name = 'Deficiency Rectification'
+        verbose_name_plural = 'Deficiency Rectifications'
+        ordering = ['-submitted_at']
+
+    def __str__(self):
+        return f"Rectification #{self.pk} for {self.deficiency} [{self.get_status_display()}]"
+
+
+def get_recommendation_eligibility(application):
+    """
+    Centralized approval eligibility evaluator for an Application.
+    Returns a dict with:
+      - is_eligible (bool): True iff documents verified, inspection completed & satisfactory,
+        and zero open/unverified deficiencies remain.
+      - checks (list[dict]): Ordered criteria with label, passed (bool), and detail (str).
+      - blocking_reasons (list[str]): Human-readable reasons if not eligible.
+    """
+    review = getattr(application, 'officer_review', None)
+    docs = list(application.documents.select_related('verification').all())
+
+    has_rejected_doc = any(
+        hasattr(d, 'verification') and d.verification.status == 'REJECTED'
+        for d in docs
+    )
+    all_docs_verified = all(
+        hasattr(d, 'verification') and d.verification.status == 'VERIFIED'
+        for d in docs
+    )
+    review_docs_verified = (
+        application.status in ('DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED')
+        or (review is not None and review.status == 'DOCUMENTS_VERIFIED')
+    )
+    docs_ok = (not has_rejected_doc) and all_docs_verified and review_docs_verified
+
+    latest_inspection = (
+        application.inspections
+        .select_related('report')
+        .order_by('-created_at')
+        .first()
+    )
+    inspection_completed = (
+        latest_inspection is not None
+        and latest_inspection.status == Inspection.STATUS_COMPLETED
+    )
+
+    report = getattr(latest_inspection, 'report', None) if inspection_completed else None
+    inspection_satisfactory = (
+        report is not None
+        and report.overall_result == InspectionReport.RESULT_SATISFACTORY
+    )
+
+    unresolved_deficiencies = application.deficiencies.exclude(
+        status__in=[Deficiency.STATUS_VERIFIED, Deficiency.STATUS_CLOSED]
+    ).count()
+    no_open_deficiencies = (unresolved_deficiencies == 0)
+
+    checks = [
+        {
+            'label': 'Documents verified',
+            'passed': docs_ok,
+            'detail': (
+                'All documents verified' if docs_ok
+                else ('Rejected document(s) exist' if has_rejected_doc else 'Document verification incomplete')
+            ),
+        },
+        {
+            'label': 'Inspection completed',
+            'passed': inspection_completed,
+            'detail': (
+                f'Inspection #{latest_inspection.pk} completed' if inspection_completed
+                else 'No completed site inspection yet'
+            ),
+        },
+        {
+            'label': 'Inspection satisfactory',
+            'passed': inspection_satisfactory,
+            'detail': (
+                'Inspection result is Satisfactory' if inspection_satisfactory
+                else (f'Inspection result: {report.get_overall_result_display()}' if report else 'Awaiting satisfactory inspection report')
+            ),
+        },
+        {
+            'label': 'No open deficiencies',
+            'passed': no_open_deficiencies,
+            'detail': (
+                'No open or unverified deficiencies' if no_open_deficiencies
+                else f'{unresolved_deficiencies} open/unverified deficienc{"y" if unresolved_deficiencies == 1 else "ies"} remain'
+            ),
+        },
+    ]
+
+    blocking_reasons = [c['detail'] for c in checks if not c['passed']]
+    return {
+        'is_eligible': all(c['passed'] for c in checks),
+        'checks': checks,
+        'blocking_reasons': blocking_reasons,
+    }
 
 
 def create_officer_user(

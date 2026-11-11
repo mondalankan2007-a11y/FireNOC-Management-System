@@ -34,4 +34,14 @@ urlpatterns = [
     path('inspections/<int:inspection_id>/complete/', views.inspection_complete, name='inspection_complete'),
     path('inspections/<int:inspection_id>/cancel/', views.inspection_cancel, name='inspection_cancel'),
     path('inspections/<int:inspection_id>/checklist/save/', views.inspection_checklist_save, name='inspection_checklist_save'),
+
+    # Deficiency, Rectification & Officer Recommendation Routes (Commit 5)
+    path('deficiencies/', views.deficiency_list, name='deficiency_list'),
+    path('deficiencies/<int:deficiency_id>/', views.deficiency_detail, name='deficiency_detail'),
+    path('inspections/<int:inspection_id>/deficiencies/create/', views.deficiency_create, name='deficiency_create'),
+    path('deficiencies/<int:deficiency_id>/rectify/', views.deficiency_rectify, name='deficiency_rectify'),
+    path('deficiencies/<int:deficiency_id>/rectifications/<int:rect_id>/review/', views.rectification_review, name='rectification_review'),
+    path('deficiencies/<int:deficiency_id>/reopen/', views.deficiency_reopen, name='deficiency_reopen'),
+    path('deficiencies/<int:deficiency_id>/close/', views.deficiency_close, name='deficiency_close'),
+    path('applications/<int:app_id>/recommend/', views.application_recommend, name='application_recommend'),
 ]

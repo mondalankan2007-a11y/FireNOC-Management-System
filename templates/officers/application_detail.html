@@ -52,7 +52,7 @@
                         <a class="nav-link" href="{% url 'officers:inspection_list' %}">
                             <i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections
                         </a>
-                        <a class="nav-link" href="#deficiencies" data-bs-toggle="tooltip" title="Deficiency Management">
+                        <a class="nav-link" href="{% url 'officers:deficiency_list' %}">
                             <i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies
                         </a>
                         <hr class="my-2 border-secondary-subtle">
@@ -690,6 +690,228 @@
                             </div>
                         {% endif %}
                     {% endif %}
+                </div>
+            </div>
+
+            <!-- ===================================================== -->
+            <!-- SECTION 8: Deficiencies & Rectification                -->
+            <!-- ===================================================== -->
+            <div class="card border-0 shadow-sm mb-4" id="deficiencies-section">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">8. Deficiencies &amp; Rectification</h5>
+                    </div>
+                    {% if latest_bad_inspection %}
+                        <a href="{% url 'officers:deficiency_create' latest_bad_inspection.pk %}" class="btn btn-sm btn-danger fw-bold">
+                            <i class="bi bi-plus-lg me-1"></i>Log Deficiency
+                        </a>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    <!-- Deficiency Metrics Badges -->
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <span class="badge bg-light text-dark border px-3 py-2">
+                            Total: <strong>{{ deficiency_stats.total }}</strong>
+                        </span>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2">
+                            Open: <strong>{{ deficiency_stats.open }}</strong>
+                        </span>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2">
+                            Submitted: <strong>{{ deficiency_stats.submitted }}</strong>
+                        </span>
+                        <span class="badge bg-info-subtle text-info border border-info-subtle px-3 py-2">
+                            Verified: <strong>{{ deficiency_stats.verified }}</strong>
+                        </span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2">
+                            Closed: <strong>{{ deficiency_stats.closed }}</strong>
+                        </span>
+                        {% if deficiency_stats.critical > 0 %}
+                            <span class="badge bg-danger text-white px-3 py-2">
+                                <i class="bi bi-exclamation-octagon me-1"></i>Critical: {{ deficiency_stats.critical }}
+                            </span>
+                        {% endif %}
+                    </div>
+
+                    {% if deficiencies %}
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th scope="col" class="ps-3">ID</th>
+                                        <th scope="col">Title</th>
+                                        <th scope="col">Severity</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Created</th>
+                                        <th scope="col" class="text-end pe-3">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for d in deficiencies %}
+                                    <tr>
+                                        <td class="ps-3 fw-bold font-monospace text-dark">DEF-{{ d.pk }}</td>
+                                        <td class="fw-semibold">{{ d.title }}</td>
+                                        <td>
+                                            {% if d.severity == 'CRITICAL' %}
+                                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Critical</span>
+                                            {% elif d.severity == 'MAJOR' %}
+                                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Major</span>
+                                            {% else %}
+                                                <span class="badge bg-info-subtle text-info border border-info-subtle">Minor</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if d.status == 'OPEN' %}
+                                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Open</span>
+                                            {% elif d.status == 'SUBMITTED_FOR_VERIFICATION' %}
+                                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Submitted</span>
+                                            {% elif d.status == 'VERIFIED' %}
+                                                <span class="badge bg-info-subtle text-info border border-info-subtle">Verified</span>
+                                            {% elif d.status == 'REJECTED' %}
+                                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Rejected</span>
+                                            {% elif d.status == 'CLOSED' %}
+                                                <span class="badge bg-success-subtle text-success border border-success-subtle">Closed</span>
+                                            {% endif %}
+                                        </td>
+                                        <td><small class="text-muted">{{ d.created_at|date:"d M Y" }}</small></td>
+                                        <td class="text-end pe-3">
+                                            <a href="{% url 'officers:deficiency_detail' d.pk %}" class="btn btn-sm btn-outline-danger fw-semibold">
+                                                View <i class="bi bi-arrow-right ms-1"></i>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p class="text-muted small mb-0">
+                            <i class="bi bi-check2-circle text-success me-1"></i>
+                            No deficiencies recorded for this application.
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- ===================================================== -->
+            <!-- SECTION 9: Officer Recommendation                      -->
+            <!-- ===================================================== -->
+            <div class="card border-0 shadow-sm mb-4" id="recommendation-section">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-award-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">9. Officer Recommendation</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Eligibility Criteria Breakdown -->
+                    <div class="p-3 rounded border mb-4 {% if eligibility.is_eligible %}bg-success-subtle border-success-subtle{% else %}bg-light{% endif %}">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="fw-bold mb-0 text-dark">
+                                {% if eligibility.is_eligible %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>Application is Eligible for Officer Recommendation
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-danger me-2"></i>Officer Recommendation Unavailable
+                                {% endif %}
+                            </h6>
+                            <span class="badge {% if eligibility.is_eligible %}bg-success text-white{% else %}bg-secondary text-white{% endif %}">
+                                {% if eligibility.is_eligible %}Eligible{% else %}Incomplete Prerequisite(s){% endif %}
+                            </span>
+                        </div>
+                        <ul class="list-unstyled mb-0 small">
+                            {% for c in eligibility.checks %}
+                            <li class="py-1">
+                                {% if c.passed %}
+                                    <i class="bi bi-check-circle-fill text-success me-2"></i>
+                                    <strong>{{ c.label }}:</strong> <span class="text-muted">{{ c.detail }}</span>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-danger me-2"></i>
+                                    <strong>{{ c.label }}:</strong> <span class="text-danger fw-semibold">{{ c.detail }}</span>
+                                {% endif %}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+
+                    <!-- Current Recommendation Status -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Current Recommendation</label>
+                            {% if review.recommendation == 'RECOMMENDED_FOR_APPROVAL' %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 fs-6">
+                                    <i class="bi bi-check2-circle me-1"></i>Recommended for Approval
+                                </span>
+                            {% elif review.recommendation == 'REQUIRES_RECTIFICATION' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-2 fs-6">
+                                    <i class="bi bi-exclamation-triangle me-1"></i>Requires Rectification
+                                </span>
+                            {% elif review.recommendation == 'NOT_RECOMMENDED' %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2 fs-6">
+                                    <i class="bi bi-x-circle me-1"></i>Not Recommended
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary border px-3 py-2 fs-6">
+                                    Pending Officer Recommendation
+                                </span>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Recommended By</label>
+                            {% if review.recommended_by %}
+                                <p class="mb-0 fw-semibold">{{ review.recommended_by.get_full_name|default:review.recommended_by.username }}</p>
+                                <small class="text-muted">{{ review.recommended_at|date:"d M Y, H:i" }}</small>
+                            {% else %}
+                                <p class="mb-0 text-muted">—</p>
+                            {% endif %}
+                        </div>
+                        {% if review.recommendation_remarks %}
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Recommendation Remarks</label>
+                            <div class="bg-light border rounded p-3 small text-dark fst-italic">{{ review.recommendation_remarks }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Update Recommendation Form -->
+                    <form method="post" action="{% url 'officers:application_recommend' application.pk %}">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-5">
+                                <label for="recommendation_select" class="form-label fw-semibold text-dark">
+                                    Update Officer Recommendation <span class="text-danger">*</span>
+                                </label>
+                                <select class="form-select" id="recommendation_select" name="recommendation" required>
+                                    <option value="" disabled {% if not review.recommendation %}selected{% endif %}>— Select recommendation —</option>
+                                    <option value="PENDING" {% if review.recommendation == 'PENDING' %}selected{% endif %}>Pending</option>
+                                    <option value="REQUIRES_RECTIFICATION" {% if review.recommendation == 'REQUIRES_RECTIFICATION' %}selected{% endif %}>Requires Rectification</option>
+                                    <option value="RECOMMENDED_FOR_APPROVAL"
+                                        {% if review.recommendation == 'RECOMMENDED_FOR_APPROVAL' %}selected{% endif %}
+                                        {% if not eligibility.is_eligible %}disabled{% endif %}>
+                                        Recommended for Approval {% if not eligibility.is_eligible %}(prerequisites not met){% endif %}
+                                    </option>
+                                    <option value="NOT_RECOMMENDED" {% if review.recommendation == 'NOT_RECOMMENDED' %}selected{% endif %}>Not Recommended</option>
+                                </select>
+                            </div>
+                            <div class="col-md-7">
+                                <label for="recommendation_remarks" class="form-label fw-semibold text-dark">Recommendation Remarks</label>
+                                <textarea class="form-control" id="recommendation_remarks" name="recommendation_remarks" rows="2"
+                                    placeholder="Enter recommendations, conditions, or rectification instructions…">{{ review.recommendation_remarks }}</textarea>
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-success fw-bold px-4">
+                                    <i class="bi bi-award me-1"></i>Save Officer Recommendation
+                                </button>
+                                <small class="text-muted ms-3">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    Officer recommendations advise the final NOC approving authority; final certificate issuance belongs to the Admin/NOC authority.
+                                </small>
+                            </div>
+                        </div>
+                    </form>
                 </div>
             </div>
 
