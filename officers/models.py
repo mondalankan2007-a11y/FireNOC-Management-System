@@ -53,6 +53,94 @@ class OfficerProfile(models.Model):
         return f"{name} ({self.officer_id})"
 
 
+class DocumentVerification(models.Model):
+    """
+    Officer verification record for an uploaded application document.
+    Maintains approval/rejection state and audit remarks without altering the source file.
+    """
+    VERIFICATION_STATUS_CHOICES = [
+        ('PENDING', 'Pending Verification'),
+        ('VERIFIED', 'Verified'),
+        ('REJECTED', 'Rejected'),
+    ]
+
+    document = models.OneToOneField(
+        'applicants.ApplicationDocument',
+        on_delete=models.CASCADE,
+        related_name='verification'
+    )
+    verified_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='document_verifications'
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=VERIFICATION_STATUS_CHOICES,
+        default='PENDING'
+    )
+    officer_remarks = models.TextField(
+        blank=True,
+        default='',
+        help_text="Officer observations, deficiency notes, or verification rationale"
+    )
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Document Verification'
+        verbose_name_plural = 'Document Verifications'
+
+    def __str__(self):
+        return f"Verification for {self.document.document_name}: {self.get_status_display()}"
+
+
+class ApplicationReview(models.Model):
+    """
+    Preliminary Officer review record for an Application.
+    Tracks review status and officer notes prior to inspection scheduling.
+    """
+    REVIEW_STATUS_CHOICES = [
+        ('UNDER_REVIEW', 'Under Review'),
+        ('DOCUMENTS_VERIFIED', 'Documents Verified / Ready for Inspection'),
+    ]
+
+    application = models.OneToOneField(
+        'applicants.Application',
+        on_delete=models.CASCADE,
+        related_name='officer_review'
+    )
+    reviewed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='application_reviews'
+    )
+    status = models.CharField(
+        max_length=30,
+        choices=REVIEW_STATUS_CHOICES,
+        default='UNDER_REVIEW'
+    )
+    officer_remarks = models.TextField(
+        blank=True,
+        default='',
+        help_text="Desk review observations or inspection readiness remarks"
+    )
+    reviewed_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Application Review'
+        verbose_name_plural = 'Application Reviews'
+
+    def __str__(self):
+        return f"Review for {self.application.application_id}: {self.get_status_display()}"
+
+
 def create_officer_user(
     username,
     email,

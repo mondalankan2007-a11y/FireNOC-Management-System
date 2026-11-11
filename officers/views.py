@@ -3,10 +3,13 @@ from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
-from django.shortcuts import render, redirect
+from django.db import models
+from django.shortcuts import render, redirect, get_object_or_404
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
-from .models import OfficerProfile
+from applicants.models import Application, ApplicationDocument
+from .models import OfficerProfile, DocumentVerification, ApplicationReview
 
 
 def is_officer(user):
@@ -51,12 +54,7 @@ def officer_required(view_func):
 def get_officer_dashboard_data(user):
     """
     Retrieve officer dashboard statistics and pending applications.
-    
-    Coordinates dynamically with team modules:
-    - Queries installed apps for Application or Inspection models.
-    - If models exist, queries database-backed values using Django ORM aggregations.
-    - If models do not yet exist, gracefully provides clean defaults (zeros and empty list),
-      allowing Commit 3 to connect the real application verification and inspection workflow.
+    Queries database-backed values from the Application model.
     """
     stats = {
         'total_applications': 0,
@@ -67,31 +65,29 @@ def get_officer_dashboard_data(user):
     }
     recent_applications = []
 
-    Application = None
-    Inspection = None
+    stats['total_applications'] = Application.objects.count()
+    stats['pending_applications'] = Application.objects.filter(
+        status__in=['PENDING', 'SUBMITTED', 'pending', 'submitted']
+    ).count()
+    stats['applications_under_verification'] = Application.objects.filter(
+        status__in=[
+            'UNDER_REVIEW', 'DOCUMENTS_VERIFIED', 'UNDER_VERIFICATION', 'UNDER_INSPECTION',
+            'under_review', 'documents_verified', 'under_verification', 'under_inspection'
+        ]
+    ).count()
 
+    recent_applications = list(Application.objects.order_by('-created_at')[:5])
+
+    # Dynamic inspection check if Inspection model is implemented in future commits
+    Inspection = None
     for app_config in apps.get_app_configs():
         for model in app_config.get_models():
             model_name = model.__name__.lower()
-            if model_name in ('application', 'nocapplication', 'firenocapplication'):
-                Application = model
-            elif model_name in ('inspection', 'siteinspection', 'fieldinspection'):
+            if model_name in ('inspection', 'siteinspection', 'fieldinspection'):
                 Inspection = model
-
-    if Application is not None:
-        stats['total_applications'] = Application.objects.count()
-        stats['pending_applications'] = Application.objects.filter(
-            status__in=['PENDING', 'SUBMITTED', 'pending', 'submitted']
-        ).count()
-        stats['applications_under_verification'] = Application.objects.filter(
-            status__in=[
-                'UNDER_REVIEW', 'UNDER_VERIFICATION', 'UNDER_INSPECTION',
-                'under_review', 'under_verification', 'under_inspection'
-            ]
-        ).count()
-
-        ordering = '-created_at' if hasattr(Application, 'created_at') else '-id'
-        recent_applications = list(Application.objects.order_by(ordering)[:5])
+                break
+        if Inspection:
+            break
 
     if Inspection is not None:
         stats['scheduled_inspections'] = Inspection.objects.filter(
@@ -126,6 +122,206 @@ def dashboard(request):
 
 # Maintain alias for backward compatibility with Commit 1
 officer_home = dashboard
+
+
+@officer_required
+def application_list(request):
+    """
+    Officer Application Queue view.
+    Displays the list of Fire NOC applications requiring Fire Officer review.
+    Supports filtering by review status and searching by application ID or building name.
+    """
+    status_filter = request.GET.get('status', '').strip().upper()
+    search_query = request.GET.get('q', '').strip()
+
+    queryset = Application.objects.select_related('applicant').prefetch_related('documents__verification').all()
+
+    if status_filter in ['PENDING', 'UNDER_REVIEW', 'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED', 'REJECTED']:
+        queryset = queryset.filter(status=status_filter)
+
+    if search_query:
+        queryset = queryset.filter(
+            models.Q(application_id__icontains=search_query) |
+            models.Q(building_name__icontains=search_query) |
+            models.Q(full_name__icontains=search_query) |
+            models.Q(city__icontains=search_query)
+        )
+
+    # Attach document verification metrics for each application
+    applications_data = []
+    for app in queryset:
+        docs = list(app.documents.all())
+        total_docs = len(docs)
+        verified_docs = sum(1 for d in docs if hasattr(d, 'verification') and d.verification.status == 'VERIFIED')
+        rejected_docs = sum(1 for d in docs if hasattr(d, 'verification') and d.verification.status == 'REJECTED')
+        pending_docs = total_docs - verified_docs - rejected_docs
+
+        applications_data.append({
+            'application': app,
+            'total_docs': total_docs,
+            'verified_docs': verified_docs,
+            'rejected_docs': rejected_docs,
+            'pending_docs': pending_docs,
+        })
+
+    profile = getattr(request.user, 'officer_profile', None)
+
+    context = {
+        'applications_data': applications_data,
+        'status_filter': status_filter,
+        'search_query': search_query,
+        'total_count': len(applications_data),
+        'officer': request.user,
+        'profile': profile,
+    }
+    return render(request, 'officers/application_list.html', context)
+
+
+@officer_required
+def application_detail(request, pk):
+    """
+    Officer Application Detail view.
+    Renders comprehensive application information across 6 organized sections:
+    1. Applicant Information
+    2. Building Information
+    3. Application Information
+    4. Documents (with download, verification status, and officer remarks)
+    5. Verification Status
+    6. Officer Actions
+    """
+    application = get_object_or_404(
+        Application.objects.select_related('applicant'),
+        pk=pk
+    )
+
+    # Ensure all documents have associated verification records
+    doc_list = list(application.documents.select_related('verification').all())
+    for doc in doc_list:
+        if not hasattr(doc, 'verification'):
+            DocumentVerification.objects.get_or_create(document=doc)
+    # Re-fetch with fresh verification relations
+    doc_list = list(application.documents.select_related('verification', 'verification__verified_by').all())
+
+    review, _ = ApplicationReview.objects.get_or_create(application=application)
+    profile = getattr(request.user, 'officer_profile', None)
+
+    total_docs = len(doc_list)
+    verified_docs = sum(1 for d in doc_list if hasattr(d, 'verification') and d.verification.status == 'VERIFIED')
+    rejected_docs = sum(1 for d in doc_list if hasattr(d, 'verification') and d.verification.status == 'REJECTED')
+    pending_docs = total_docs - verified_docs - rejected_docs
+
+    context = {
+        'application': application,
+        'documents': doc_list,
+        'review': review,
+        'total_docs': total_docs,
+        'verified_docs': verified_docs,
+        'rejected_docs': rejected_docs,
+        'pending_docs': pending_docs,
+        'officer': request.user,
+        'profile': profile,
+    }
+    return render(request, 'officers/application_detail.html', context)
+
+
+@officer_required
+def document_verify(request, app_id, doc_id):
+    """
+    Process Officer Document Verification action (Verify or Reject).
+    State-changing action strictly requiring POST request.
+    Does not delete uploaded files on rejection.
+    """
+    if request.method != 'POST':
+        messages.error(request, "Invalid request method.")
+        return redirect('officers:application_detail', pk=app_id)
+
+    application = get_object_or_404(Application, pk=app_id)
+    document = get_object_or_404(ApplicationDocument, pk=doc_id, application=application)
+
+    action = request.POST.get('action', '').strip().upper()
+    remarks = request.POST.get('officer_remarks', '').strip()
+
+    # Data integrity: Do not allow verification without attached file
+    if action == 'VERIFY' and not document.file:
+        messages.error(request, "Cannot verify document: No valid file is attached to this record.")
+        return redirect('officers:application_detail', pk=app_id)
+
+    # Rejection requires reason/remarks
+    if action == 'REJECT' and not remarks:
+        messages.error(request, "Please provide officer remarks explaining the rejection reason.")
+        return redirect('officers:application_detail', pk=app_id)
+
+    verification, _ = DocumentVerification.objects.get_or_create(document=document)
+
+    if action == 'VERIFY':
+        verification.status = 'VERIFIED'
+        verification.officer_remarks = remarks or 'Document audited and verified in compliance with fire safety norms.'
+        verification.verified_by = request.user
+        verification.verified_at = timezone.now()
+        verification.save()
+        messages.success(request, f"Document '{document.document_name}' verified successfully.")
+    elif action == 'REJECT':
+        verification.status = 'REJECTED'
+        verification.officer_remarks = remarks
+        verification.verified_by = request.user
+        verification.verified_at = timezone.now()
+        verification.save()
+        messages.warning(request, f"Document '{document.document_name}' rejected. Officer remarks have been recorded.")
+    else:
+        messages.error(request, "Invalid verification action specified.")
+
+    return redirect('officers:application_detail', pk=app_id)
+
+
+@officer_required
+def application_review(request, app_id):
+    """
+    Process Officer Application Verification status update.
+    Allows advancing the preliminary stage to 'UNDER_REVIEW' or 'DOCUMENTS_VERIFIED'.
+    State-changing action strictly requiring POST request.
+    """
+    if request.method != 'POST':
+        messages.error(request, "Invalid request method.")
+        return redirect('officers:application_detail', pk=app_id)
+
+    application = get_object_or_404(Application, pk=app_id)
+    verification_status = request.POST.get('verification_status', '').strip().upper()
+    remarks = request.POST.get('officer_remarks', '').strip()
+
+    valid_statuses = ['UNDER_REVIEW', 'DOCUMENTS_VERIFIED']
+    if verification_status not in valid_statuses:
+        messages.error(request, "Invalid application verification status specified.")
+        return redirect('officers:application_detail', pk=app_id)
+
+    # Validate that no rejected documents exist before marking all documents verified
+    if verification_status == 'DOCUMENTS_VERIFIED':
+        has_rejected = application.documents.filter(verification__status='REJECTED').exists()
+        if has_rejected:
+            messages.error(
+                request,
+                "Cannot mark application as 'Documents Verified': One or more required documents have been rejected."
+            )
+            return redirect('officers:application_detail', pk=app_id)
+
+    application.status = verification_status
+    application.save(update_fields=['status', 'updated_at'])
+
+    review, _ = ApplicationReview.objects.get_or_create(application=application)
+    review.status = verification_status
+    review.officer_remarks = remarks
+    review.reviewed_by = request.user
+    review.reviewed_at = timezone.now()
+    review.save()
+
+    if verification_status == 'UNDER_REVIEW':
+        messages.info(request, f"Application {application.application_id} has been moved to Under Review.")
+    else:
+        messages.success(
+            request,
+            f"Application {application.application_id} marked as Documents Verified / Ready for Inspection."
+        )
+
+    return redirect('officers:application_detail', pk=app_id)
 
 
 def officer_login(request):

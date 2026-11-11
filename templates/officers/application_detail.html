@@ -1,0 +1,689 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Application {{ application.application_id }} | FireNOC Officer Portal{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'officers:officer_home' %}">Officer Portal</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'officers:application_list' %}">Applications Queue</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ application.application_id }}</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Sidebar Navigation (Column 1) -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <!-- Officer Profile Header -->
+                <div class="dashboard-user-profile text-center" style="background: linear-gradient(135deg, #07172b 0%, #0b2545 100%); border-bottom: 3px solid #f59e0b;">
+                    <div class="dashboard-user-avatar mx-auto mb-2" style="background-color: rgba(245, 158, 11, 0.2); border-color: rgba(245, 158, 11, 0.5); color: #fbbf24;">
+                        <i class="bi bi-shield-check"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">
+                        {{ officer.get_full_name|default:officer.username }}
+                    </h5>
+                    <small class="text-white-50 d-block px-2 text-truncate">
+                        {{ profile.designation|default:"Fire Safety Inspection Officer" }}
+                    </small>
+                    <div class="mt-2">
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-2 py-1 small">
+                            <i class="bi bi-person-badge me-1"></i>ID: {{ profile.officer_id|default:officer.username }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Navigation Links List -->
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <a class="nav-link" href="{% url 'officers:officer_home' %}">
+                            <i class="bi bi-grid-1x2-fill me-2"></i>Dashboard
+                        </a>
+                        <a class="nav-link active" href="{% url 'officers:application_list' %}">
+                            <i class="bi bi-file-earmark-text me-2 text-primary"></i>Applications
+                        </a>
+                        <a class="nav-link" href="#document-verification" data-bs-toggle="tooltip" title="Document Verification Audit">
+                            <i class="bi bi-file-earmark-check me-2 text-info"></i>Document Verification
+                        </a>
+                        <a class="nav-link" href="#inspections" data-bs-toggle="tooltip" title="Physical Site Inspections">
+                            <i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections
+                        </a>
+                        <a class="nav-link" href="#deficiencies" data-bs-toggle="tooltip" title="Deficiency Management">
+                            <i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies
+                        </a>
+                        <hr class="my-2 border-secondary-subtle">
+                        <form method="post" action="{% url 'officers:logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Application Quick Status -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <div class="d-flex align-items-center mb-3">
+                    <i class="bi bi-info-circle-fill text-warning fs-5 me-2"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Application Status</h6>
+                </div>
+                <div class="mb-2">
+                    {% if application.status == 'PENDING' %}
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle w-100 py-2">
+                            <i class="bi bi-hourglass-split me-1"></i>Pending Review
+                        </span>
+                    {% elif application.status == 'UNDER_REVIEW' %}
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle w-100 py-2">
+                            <i class="bi bi-file-earmark-ruled me-1"></i>Under Review
+                        </span>
+                    {% elif application.status == 'DOCUMENTS_VERIFIED' %}
+                        <span class="badge bg-info-subtle text-info border border-info-subtle w-100 py-2">
+                            <i class="bi bi-patch-check me-1"></i>Documents Verified
+                        </span>
+                    {% elif application.status == 'UNDER_INSPECTION' %}
+                        <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle w-100 py-2">
+                            <i class="bi bi-clipboard2-check me-1"></i>Under Inspection
+                        </span>
+                    {% elif application.status == 'APPROVED' %}
+                        <span class="badge bg-success-subtle text-success border border-success-subtle w-100 py-2">
+                            <i class="bi bi-check-circle me-1"></i>Approved
+                        </span>
+                    {% elif application.status == 'REJECTED' %}
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle w-100 py-2">
+                            <i class="bi bi-x-circle me-1"></i>Rejected
+                        </span>
+                    {% else %}
+                        <span class="badge bg-secondary-subtle text-secondary border w-100 py-2">
+                            {{ application.get_status_display }}
+                        </span>
+                    {% endif %}
+                </div>
+                <div class="small text-muted">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span><i class="bi bi-files me-1"></i>Total Docs:</span>
+                        <strong>{{ total_docs }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span><i class="bi bi-check2 text-success me-1"></i>Verified:</span>
+                        <strong class="text-success">{{ verified_docs }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1">
+                        <span><i class="bi bi-x text-danger me-1"></i>Rejected:</span>
+                        <strong class="text-danger">{{ rejected_docs }}</strong>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span><i class="bi bi-clock text-warning me-1"></i>Pending:</span>
+                        <strong class="text-warning">{{ pending_docs }}</strong>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content (Column 2) -->
+        <main class="col-lg-9 col-md-8">
+
+            <!-- Django Messages -->
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags == 'warning' %}warning{% elif message.tags == 'success' %}success{% else %}info{% endif %} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <!-- Page Header Banner -->
+            <div class="dashboard-welcome-banner shadow-sm mb-4" style="background: linear-gradient(135deg, #07172b 0%, #0b2545 100%); border-left: 4px solid #f59e0b;">
+                <div class="row align-items-center">
+                    <div class="col-lg-8 mb-3 mb-lg-0">
+                        <span class="badge bg-warning text-dark mb-2 px-3 py-1 text-uppercase fw-semibold">
+                            <i class="bi bi-file-earmark-text me-1"></i>Application Scrutiny
+                        </span>
+                        <h1 class="h3 fw-bold text-white mb-1">{{ application.application_id }}</h1>
+                        <p class="text-white-50 mb-0 fs-6">
+                            {{ application.building_name }} &mdash; {{ application.get_application_type_display }}
+                        </p>
+                    </div>
+                    <div class="col-lg-4 text-lg-end">
+                        <a href="{% url 'officers:application_list' %}" class="btn btn-outline-light btn-sm">
+                            <i class="bi bi-arrow-left me-1"></i>Back to Queue
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===================================================== -->
+            <!-- SECTION 1: Applicant Information                       -->
+            <!-- ===================================================== -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-primary-subtle text-primary d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-person-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">1. Applicant Information</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Full Name</label>
+                            <p class="mb-0 fw-semibold text-dark">{{ application.full_name }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Email Address</label>
+                            <p class="mb-0">
+                                <a href="mailto:{{ application.email }}" class="text-decoration-none">{{ application.email }}</a>
+                            </p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Mobile Number</label>
+                            <p class="mb-0">
+                                <a href="tel:{{ application.mobile_number }}" class="text-decoration-none">{{ application.mobile_number }}</a>
+                            </p>
+                        </div>
+                        {% if application.applicant %}
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Portal Username</label>
+                            <p class="mb-0 text-muted">{{ application.applicant.username }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===================================================== -->
+            <!-- SECTION 2: Building Information                        -->
+            <!-- ===================================================== -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-warning-subtle text-warning d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-building-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">2. Building Information</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Building Name</label>
+                            <p class="mb-0 fw-semibold text-dark">{{ application.building_name }}</p>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Building Type</label>
+                            <p class="mb-0">
+                                <span class="badge bg-light text-dark border">{{ application.get_building_type_display }}</span>
+                                {% if application.building_type == 'OTHER' and application.building_type_other %}
+                                    <small class="text-muted d-block mt-1">{{ application.building_type_other }}</small>
+                                {% endif %}
+                            </p>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Occupancy Type</label>
+                            <p class="mb-0">
+                                <span class="badge bg-info-subtle text-info border border-info-subtle">{{ application.get_occupancy_type_display }}</span>
+                            </p>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Building Address</label>
+                            <p class="mb-0 text-dark">{{ application.building_address }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">City</label>
+                            <p class="mb-0">{{ application.city }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">State</label>
+                            <p class="mb-0">{{ application.state }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">PIN Code</label>
+                            <p class="mb-0">{{ application.pin_code }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Number of Floors</label>
+                            <p class="mb-0 fw-semibold">{{ application.num_floors }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Built-up Area (sq m)</label>
+                            <p class="mb-0 fw-semibold">{{ application.builtup_area }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Year of Construction</label>
+                            <p class="mb-0 fw-semibold">{{ application.year_construction }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===================================================== -->
+            <!-- SECTION 3: Application Information                     -->
+            <!-- ===================================================== -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-info-subtle text-info d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-clipboard2-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">3. Application Information</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Application ID</label>
+                            <p class="mb-0 fw-bold text-dark font-monospace">{{ application.application_id }}</p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Application Type</label>
+                            <p class="mb-0">
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">{{ application.get_application_type_display }}</span>
+                            </p>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Submission Date</label>
+                            <p class="mb-0">{{ application.created_at|date:"d M Y, H:i" }}</p>
+                        </div>
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Purpose of Application</label>
+                            <p class="mb-0 text-dark">{{ application.purpose }}</p>
+                        </div>
+                        {% if application.remarks %}
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Applicant Remarks</label>
+                            <p class="mb-0 text-muted fst-italic">{{ application.remarks }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===================================================== -->
+            <!-- SECTION 4: Documents                                   -->
+            <!-- ===================================================== -->
+            <div class="card border-0 shadow-sm mb-4" id="documents-section">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-success-subtle text-success d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-file-earmark-check-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">4. Documents</h5>
+                    </div>
+                    <span class="badge bg-light text-muted border">{{ total_docs }} File{{ total_docs|pluralize }}</span>
+                </div>
+                <div class="card-body p-0">
+                    {% if documents %}
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th scope="col" class="ps-3">#</th>
+                                        <th scope="col">Document</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Uploaded</th>
+                                        <th scope="col">Status</th>
+                                        <th scope="col">Officer Remarks</th>
+                                        <th scope="col" class="text-end pe-3">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for doc in documents %}
+                                    <tr>
+                                        <td class="ps-3 text-muted small">{{ forloop.counter }}</td>
+                                        <td>
+                                            <div class="fw-semibold text-dark">{{ doc.document_name }}</div>
+                                            {% if doc.file %}
+                                                <a href="{{ doc.file.url }}" target="_blank" class="small text-decoration-none text-primary">
+                                                    <i class="bi bi-download me-1"></i>Download / View
+                                                </a>
+                                            {% else %}
+                                                <small class="text-danger"><i class="bi bi-exclamation-circle me-1"></i>File missing</small>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-light text-dark border small">{{ doc.get_document_type_display }}</span>
+                                        </td>
+                                        <td>
+                                            <small class="text-muted">{{ doc.uploaded_at|date:"d M Y" }}</small>
+                                        </td>
+                                        <td>
+                                            {% if doc.verification.status == 'VERIFIED' %}
+                                                <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                    <i class="bi bi-check2-circle me-1"></i>Verified
+                                                </span>
+                                            {% elif doc.verification.status == 'REJECTED' %}
+                                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                                    <i class="bi bi-x-circle me-1"></i>Rejected
+                                                </span>
+                                            {% else %}
+                                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                                                    <i class="bi bi-clock me-1"></i>Pending
+                                                </span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if doc.verification.officer_remarks %}
+                                                <small class="text-muted fst-italic" title="{{ doc.verification.officer_remarks }}">
+                                                    {{ doc.verification.officer_remarks|truncatechars:60 }}
+                                                </small>
+                                            {% else %}
+                                                <small class="text-muted">—</small>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end pe-3">
+                                            {% if doc.file %}
+                                            <div class="d-flex gap-1 justify-content-end">
+                                                <!-- Verify Button -->
+                                                <button type="button"
+                                                    class="btn btn-sm btn-success-subtle border border-success-subtle text-success fw-semibold"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#verifyModal{{ doc.pk }}"
+                                                    title="Verify Document">
+                                                    <i class="bi bi-check-lg"></i>
+                                                </button>
+                                                <!-- Reject Button -->
+                                                <button type="button"
+                                                    class="btn btn-sm btn-danger-subtle border border-danger-subtle text-danger fw-semibold"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#rejectModal{{ doc.pk }}"
+                                                    title="Reject Document">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </div>
+                                            {% else %}
+                                                <small class="text-muted">No file</small>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <div class="display-6 text-muted opacity-50 mb-3">
+                                <i class="bi bi-file-earmark-x"></i>
+                            </div>
+                            <h6 class="fw-bold text-dark mb-1">No documents uploaded</h6>
+                            <p class="text-muted small mb-0">The applicant has not uploaded any supporting documents for this application.</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- ===================================================== -->
+            <!-- SECTION 5: Verification Status                         -->
+            <!-- ===================================================== -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-secondary-subtle text-secondary d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-patch-check-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">5. Verification Status</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3 align-items-center">
+                        <!-- Overall Status Badge -->
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-2">Overall Application Status</label>
+                            {% if application.status == 'PENDING' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-2">
+                                    <i class="bi bi-hourglass-split me-1"></i>Pending Review
+                                </span>
+                            {% elif application.status == 'UNDER_REVIEW' %}
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2">
+                                    <i class="bi bi-file-earmark-ruled me-1"></i>Under Review
+                                </span>
+                            {% elif application.status == 'DOCUMENTS_VERIFIED' %}
+                                <span class="badge bg-info-subtle text-info border border-info-subtle px-3 py-2">
+                                    <i class="bi bi-patch-check me-1"></i>Documents Verified
+                                </span>
+                            {% elif application.status == 'UNDER_INSPECTION' %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-2">
+                                    <i class="bi bi-clipboard2-check me-1"></i>Under Inspection
+                                </span>
+                            {% elif application.status == 'APPROVED' %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2">
+                                    <i class="bi bi-check-circle me-1"></i>Approved
+                                </span>
+                            {% elif application.status == 'REJECTED' %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-3 py-2">
+                                    <i class="bi bi-x-circle me-1"></i>Rejected
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary border px-3 py-2">
+                                    {{ application.get_status_display }}
+                                </span>
+                            {% endif %}
+                        </div>
+
+                        <!-- Document Summary -->
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-2">Document Audit</label>
+                            <div class="d-flex gap-2 flex-wrap">
+                                <span class="badge bg-light text-dark border">
+                                    <i class="bi bi-files me-1"></i>Total: {{ total_docs }}
+                                </span>
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                    <i class="bi bi-check2 me-1"></i>Verified: {{ verified_docs }}
+                                </span>
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                    <i class="bi bi-x me-1"></i>Rejected: {{ rejected_docs }}
+                                </span>
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                                    <i class="bi bi-clock me-1"></i>Pending: {{ pending_docs }}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Reviewer Info -->
+                        <div class="col-md-4">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-2">Last Reviewed By</label>
+                            {% if review.reviewed_by %}
+                                <p class="mb-1 fw-semibold text-dark">
+                                    <i class="bi bi-person-check me-1"></i>
+                                    {{ review.reviewed_by.get_full_name|default:review.reviewed_by.username }}
+                                </p>
+                                <small class="text-muted">{{ review.reviewed_at|date:"d M Y, H:i" }}</small>
+                            {% else %}
+                                <p class="text-muted mb-0 small">
+                                    <i class="bi bi-dash-circle me-1"></i>Not yet reviewed
+                                </p>
+                            {% endif %}
+                        </div>
+
+                        {% if review.officer_remarks %}
+                        <div class="col-md-12">
+                            <label class="small text-muted fw-semibold text-uppercase d-block mb-1">Officer Review Remarks</label>
+                            <div class="bg-light border rounded p-3 small text-dark fst-italic">
+                                {{ review.officer_remarks }}
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===================================================== -->
+            <!-- SECTION 6: Officer Actions                             -->
+            <!-- ===================================================== -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-shield-exclamation"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">6. Officer Actions</h5>
+                    </div>
+                </div>
+                <div class="card-body">
+                    {% if rejected_docs > 0 and application.status != 'REJECTED' %}
+                        <div class="alert alert-warning d-flex align-items-start mb-4" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill text-warning me-2 mt-1 fs-5"></i>
+                            <div>
+                                <strong>Warning:</strong> {{ rejected_docs }} document{{ rejected_docs|pluralize }} {{ rejected_docs|pluralize:"has,have" }} been rejected.
+                                You cannot mark this application as 'Documents Verified' while rejected documents exist.
+                                Contact the applicant to re-upload the required documents before proceeding.
+                            </div>
+                        </div>
+                    {% endif %}
+
+                    <form method="post" action="{% url 'officers:application_review' application.pk %}">
+                        {% csrf_token %}
+                        <div class="row g-3">
+                            <div class="col-md-5">
+                                <label for="verification_status" class="form-label fw-semibold text-dark">
+                                    Update Verification Status <span class="text-danger">*</span>
+                                </label>
+                                <select class="form-select" id="verification_status" name="verification_status" required>
+                                    <option value="" disabled {% if not review.status %}selected{% endif %}>
+                                        — Select new status —
+                                    </option>
+                                    <option value="UNDER_REVIEW" {% if review.status == 'UNDER_REVIEW' %}selected{% endif %}>
+                                        Under Review
+                                    </option>
+                                    <option value="DOCUMENTS_VERIFIED"
+                                        {% if review.status == 'DOCUMENTS_VERIFIED' %}selected{% endif %}
+                                        {% if rejected_docs > 0 %}disabled{% endif %}>
+                                        Documents Verified / Ready for Inspection
+                                        {% if rejected_docs > 0 %}(blocked — rejected docs exist){% endif %}
+                                    </option>
+                                </select>
+                            </div>
+                            <div class="col-md-7">
+                                <label for="officer_remarks" class="form-label fw-semibold text-dark">
+                                    Officer Remarks
+                                </label>
+                                <textarea
+                                    class="form-control"
+                                    id="officer_remarks"
+                                    name="officer_remarks"
+                                    rows="3"
+                                    maxlength="2000"
+                                    placeholder="Enter desk review observations, deficiencies noted, or any other remarks…">{{ review.officer_remarks }}</textarea>
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-warning text-dark fw-bold px-4">
+                                    <i class="bi bi-check2-square me-1"></i>Submit Review Decision
+                                </button>
+                                <small class="text-muted ms-3">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    This updates the preliminary review stage. Final approval/NOC issuance requires physical inspection.
+                                </small>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+        </main>
+    </div><!-- /.row -->
+</div><!-- /.container-fluid -->
+
+
+<!-- ===================================================== -->
+<!-- Document Verification Modals (Verify & Reject)        -->
+<!-- ===================================================== -->
+{% for doc in documents %}
+{% if doc.file %}
+
+<!-- Verify Modal -->
+<div class="modal fade" id="verifyModal{{ doc.pk }}" tabindex="-1" aria-labelledby="verifyModalLabel{{ doc.pk }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-success" id="verifyModalLabel{{ doc.pk }}">
+                    <i class="bi bi-check-circle-fill me-2"></i>Verify Document
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">
+                    You are verifying: <strong class="text-dark">{{ doc.document_name }}</strong><br>
+                    <small>Type: {{ doc.get_document_type_display }}</small>
+                </p>
+                <form method="post" action="{% url 'officers:document_verify' application.pk doc.pk %}" id="verifyForm{{ doc.pk }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="VERIFY">
+                    <div class="mb-3">
+                        <label for="verifyRemarks{{ doc.pk }}" class="form-label fw-semibold small">Officer Remarks (optional)</label>
+                        <textarea
+                            class="form-control"
+                            id="verifyRemarks{{ doc.pk }}"
+                            name="officer_remarks"
+                            rows="3"
+                            maxlength="1000"
+                            placeholder="Enter verification remarks or leave blank for a default note…">{{ doc.verification.officer_remarks }}</textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" form="verifyForm{{ doc.pk }}" class="btn btn-success fw-bold">
+                    <i class="bi bi-check-lg me-1"></i>Confirm Verification
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Reject Modal -->
+<div class="modal fade" id="rejectModal{{ doc.pk }}" tabindex="-1" aria-labelledby="rejectModalLabel{{ doc.pk }}" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header border-0 pb-0">
+                <h5 class="modal-title fw-bold text-danger" id="rejectModalLabel{{ doc.pk }}">
+                    <i class="bi bi-x-circle-fill me-2"></i>Reject Document
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-3">
+                    You are rejecting: <strong class="text-dark">{{ doc.document_name }}</strong><br>
+                    <small>Type: {{ doc.get_document_type_display }}</small>
+                </p>
+                <div class="alert alert-warning small mb-3" role="alert">
+                    <i class="bi bi-info-circle me-1"></i>
+                    The uploaded file will <strong>NOT</strong> be deleted. Only the verification status will be updated.
+                </div>
+                <form method="post" action="{% url 'officers:document_verify' application.pk doc.pk %}" id="rejectForm{{ doc.pk }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="REJECT">
+                    <div class="mb-3">
+                        <label for="rejectRemarks{{ doc.pk }}" class="form-label fw-semibold small">
+                            Rejection Reason <span class="text-danger">*</span>
+                        </label>
+                        <textarea
+                            class="form-control"
+                            id="rejectRemarks{{ doc.pk }}"
+                            name="officer_remarks"
+                            rows="3"
+                            maxlength="1000"
+                            placeholder="Describe the deficiency or reason for rejection…"
+                            required>{{ doc.verification.officer_remarks }}</textarea>
+                        <div class="form-text text-muted">Remarks are mandatory for rejection.</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer border-0">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" form="rejectForm{{ doc.pk }}" class="btn btn-danger fw-bold">
+                    <i class="bi bi-x-lg me-1"></i>Confirm Rejection
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endif %}
+{% endfor %}
+
+{% endblock %}

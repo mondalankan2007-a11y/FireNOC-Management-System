@@ -44,10 +44,9 @@
                             <i class="bi bi-grid-1x2-fill me-2"></i>Dashboard
                         </a>
 
-                        <!-- 2. Applications (Placeholder for future commit) -->
-                        <a class="nav-link" href="#applications" data-bs-toggle="tooltip" title="Application Review Queue (Commit 3)">
+                        <!-- 2. Applications (Functional - Commit 3) -->
+                        <a class="nav-link" href="{% url 'officers:application_list' %}">
                             <i class="bi bi-file-earmark-text me-2 text-primary"></i>Applications
-                            <span class="badge bg-secondary-subtle text-secondary border ms-auto small">Queue</span>
                         </a>
 
                         <!-- 3. Document Verification (Placeholder for future commit) -->
@@ -252,7 +251,7 @@
                                                 </span>
                                             </td>
                                             <td class="text-end pe-3">
-                                                <a href="#review" class="btn btn-sm btn-outline-warning text-dark fw-semibold">
+                                                <a href="{% url 'officers:application_detail' app.pk %}" class="btn btn-sm btn-outline-warning text-dark fw-semibold">
                                                     Review
                                                 </a>
                                             </td>
