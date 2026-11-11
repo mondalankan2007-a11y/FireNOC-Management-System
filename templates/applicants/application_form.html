@@ -92,7 +92,7 @@
                 </a>
             </div>
 
-            <form id="nocApplicationForm" novalidate>
+            <form id="nocApplicationForm" method="POST" action="{% url 'applicants:application_new' %}" novalidate>
                 {% csrf_token %}
 
                 <!-- =================================================
@@ -111,7 +111,8 @@
                     <div class="card-body p-4">
                         <div class="alert alert-light border small text-muted mb-4">
                             <i class="bi bi-lock text-secondary me-2"></i>
-                            Your personal details have been pre-filled from your registered profile. Contact support if any information is incorrect.
+                            Your personal details have been pre-filled from your registered profile. Contact support if
+                            any information is incorrect.
                         </div>
                         <div class="row g-3">
                             <!-- Full Name -->
@@ -128,7 +129,7 @@
                                         class="form-control border-start-0 bg-light"
                                         id="id_full_name"
                                         name="full_name"
-                                        value="{{ prefill.full_name }}"
+                                        value="{{ form_data.full_name|default:prefill.full_name }}"
                                         readonly
                                         required
                                         aria-describedby="full_name_help"
@@ -153,7 +154,7 @@
                                         class="form-control border-start-0 bg-light"
                                         id="id_email"
                                         name="email"
-                                        value="{{ prefill.email }}"
+                                        value="{{ form_data.email|default:prefill.email }}"
                                         readonly
                                         required
                                     >
@@ -183,6 +184,7 @@
                                         minlength="10"
                                         maxlength="10"
                                         inputmode="numeric"
+                                        value="{{ form_data.mobile_number|default:'' }}"
                                         required
                                         aria-describedby="mobile_feedback"
                                     >
@@ -205,7 +207,8 @@
                             <span class="app-form-section-badge bg-primary text-white me-3">B</span>
                             <div>
                                 <h5 class="fw-bold mb-0">Building Information</h5>
-                                <small class="text-muted">Provide accurate details about the building requiring NOC</small>
+                                <small class="text-muted">Provide accurate details about the building requiring
+                                    NOC</small>
                             </div>
                         </div>
                     </div>
@@ -227,6 +230,7 @@
                                         name="building_name"
                                         placeholder="e.g. Green Heights Commercial Complex"
                                         maxlength="150"
+                                        value="{{ form_data.building_name|default:'' }}"
                                         required
                                         aria-describedby="building_name_feedback"
                                     >
@@ -246,16 +250,16 @@
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-tags text-muted"></i>
                                     </span>
-                                    <select class="form-select border-start-0" id="id_building_type" name="building_type" required
-                                            aria-describedby="building_type_feedback">
-                                        <option value="" disabled selected>— Select Building Type —</option>
-                                        <option value="RESIDENTIAL">Residential</option>
-                                        <option value="COMMERCIAL">Commercial</option>
-                                        <option value="INDUSTRIAL">Industrial</option>
-                                        <option value="EDUCATIONAL">Educational Institution</option>
-                                        <option value="HOSPITAL">Hospital</option>
-                                        <option value="HOTEL">Hotel</option>
-                                        <option value="OTHER">Other</option>
+                                    <select class="form-select border-start-0" id="id_building_type"
+                                        name="building_type" required aria-describedby="building_type_feedback">
+                                        <option value="" disabled {% if not form_data.building_type %}selected{% endif %}>— Select Building Type —</option>
+                                        <option value="RESIDENTIAL" {% if form_data.building_type == 'RESIDENTIAL' %}selected{% endif %}>Residential</option>
+                                        <option value="COMMERCIAL" {% if form_data.building_type == 'COMMERCIAL' %}selected{% endif %}>Commercial</option>
+                                        <option value="INDUSTRIAL" {% if form_data.building_type == 'INDUSTRIAL' %}selected{% endif %}>Industrial</option>
+                                        <option value="EDUCATIONAL" {% if form_data.building_type == 'EDUCATIONAL' %}selected{% endif %}>Educational Institution</option>
+                                        <option value="HOSPITAL" {% if form_data.building_type == 'HOSPITAL' %}selected{% endif %}>Hospital</option>
+                                        <option value="HOTEL" {% if form_data.building_type == 'HOTEL' %}selected{% endif %}>Hotel</option>
+                                        <option value="OTHER" {% if form_data.building_type == 'OTHER' %}selected{% endif %}>Other</option>
                                     </select>
                                     <div class="invalid-feedback" id="building_type_feedback">
                                         Please select a building type.
@@ -264,7 +268,7 @@
                             </div>
 
                             <!-- "Other" building type specification — hidden by default -->
-                            <div class="col-md-6 offset-md-6" id="other_building_type_wrapper" style="display:none;" aria-live="polite">
+                            <div class="col-md-6 offset-md-6" id="other_building_type_wrapper" style="{% if form_data.building_type == 'OTHER' %}display:block;{% else %}display:none;{% endif %}" aria-live="polite">
                                 <label for="id_building_type_other" class="form-label fw-semibold">
                                     Specify Building Type <span class="text-danger">*</span>
                                 </label>
@@ -279,13 +283,15 @@
                                         name="building_type_other"
                                         placeholder="Describe the building type"
                                         maxlength="100"
+                                        value="{{ form_data.building_type_other|default:'' }}"
                                         aria-describedby="building_type_other_feedback"
                                     >
                                     <div class="invalid-feedback" id="building_type_other_feedback">
                                         Please describe the building type (required when "Other" is selected).
                                     </div>
                                 </div>
-                                <div class="form-text">Briefly describe the type of building (e.g., Warehouse, Religious, Mixed-Commercial).</div>
+                                <div class="form-text">Briefly describe the type of building (e.g., Warehouse,
+                                    Religious, Mixed-Commercial).</div>
                             </div>
 
                             <!-- Building Address -->
@@ -306,7 +312,7 @@
                                         maxlength="500"
                                         required
                                         aria-describedby="building_address_feedback"
-                                    ></textarea>
+                                    >{{ form_data.building_address|default:'' }}</textarea>
                                     <div class="invalid-feedback" id="building_address_feedback">
                                         Building address is required.
                                     </div>
@@ -326,6 +332,7 @@
                                     name="city"
                                     placeholder="e.g. Kolkata"
                                     maxlength="100"
+                                    value="{{ form_data.city|default:'' }}"
                                     required
                                     aria-describedby="city_feedback"
                                 >
@@ -340,44 +347,45 @@
                                     State <span class="text-danger">*</span>
                                 </label>
                                 <select class="form-select" id="id_state" name="state" required
-                                        aria-describedby="state_feedback">
-                                    <option value="" disabled selected>— Select State —</option>
-                                    <option>Andhra Pradesh</option>
-                                    <option>Arunachal Pradesh</option>
-                                    <option>Assam</option>
-                                    <option>Bihar</option>
-                                    <option>Chhattisgarh</option>
-                                    <option>Goa</option>
-                                    <option>Gujarat</option>
-                                    <option>Haryana</option>
-                                    <option>Himachal Pradesh</option>
-                                    <option>Jharkhand</option>
-                                    <option>Karnataka</option>
-                                    <option>Kerala</option>
-                                    <option>Madhya Pradesh</option>
-                                    <option>Maharashtra</option>
-                                    <option>Manipur</option>
-                                    <option>Meghalaya</option>
-                                    <option>Mizoram</option>
-                                    <option>Nagaland</option>
-                                    <option>Odisha</option>
-                                    <option>Punjab</option>
-                                    <option>Rajasthan</option>
-                                    <option>Sikkim</option>
-                                    <option>Tamil Nadu</option>
-                                    <option>Telangana</option>
-                                    <option>Tripura</option>
-                                    <option>Uttar Pradesh</option>
-                                    <option>Uttarakhand</option>
-                                    <option>West Bengal</option>
-                                    <option>Andaman and Nicobar Islands</option>
-                                    <option>Chandigarh</option>
-                                    <option>Dadra and Nagar Haveli and Daman and Diu</option>
-                                    <option>Delhi</option>
-                                    <option>Jammu and Kashmir</option>
-                                    <option>Ladakh</option>
-                                    <option>Lakshadweep</option>
-                                    <option>Puducherry</option>
+                                    aria-describedby="state_feedback">
+                                    <option value="" disabled {% if not form_data.state %}selected{% endif %}>— Select State —</option>
+                                    {% for st in "Andhra Pradesh,Arunachal Pradesh,Assam,Bihar,Chhattisgarh,Goa,Gujarat,Haryana,Himachal Pradesh,Jharkhand,Karnataka,Kerala,Madhya Pradesh,Maharashtra,Manipur,Meghalaya,Mizoram,Nagaland,Odisha,Punjab,Rajasthan,Sikkim,Tamil Nadu,Telangana,Tripura,Uttar Pradesh,Uttarakhand,West Bengal,Andaman and Nicobar Islands,Chandigarh,Dadra and Nagar Haveli and Daman and Diu,Delhi,Jammu and Kashmir,Ladakh,Lakshadweep,Puducherry"|make_list %}{% endfor %}
+                                    <option {% if form_data.state == 'Andhra Pradesh' %}selected{% endif %}>Andhra Pradesh</option>
+                                    <option {% if form_data.state == 'Arunachal Pradesh' %}selected{% endif %}>Arunachal Pradesh</option>
+                                    <option {% if form_data.state == 'Assam' %}selected{% endif %}>Assam</option>
+                                    <option {% if form_data.state == 'Bihar' %}selected{% endif %}>Bihar</option>
+                                    <option {% if form_data.state == 'Chhattisgarh' %}selected{% endif %}>Chhattisgarh</option>
+                                    <option {% if form_data.state == 'Goa' %}selected{% endif %}>Goa</option>
+                                    <option {% if form_data.state == 'Gujarat' %}selected{% endif %}>Gujarat</option>
+                                    <option {% if form_data.state == 'Haryana' %}selected{% endif %}>Haryana</option>
+                                    <option {% if form_data.state == 'Himachal Pradesh' %}selected{% endif %}>Himachal Pradesh</option>
+                                    <option {% if form_data.state == 'Jharkhand' %}selected{% endif %}>Jharkhand</option>
+                                    <option {% if form_data.state == 'Karnataka' %}selected{% endif %}>Karnataka</option>
+                                    <option {% if form_data.state == 'Kerala' %}selected{% endif %}>Kerala</option>
+                                    <option {% if form_data.state == 'Madhya Pradesh' %}selected{% endif %}>Madhya Pradesh</option>
+                                    <option {% if form_data.state == 'Maharashtra' %}selected{% endif %}>Maharashtra</option>
+                                    <option {% if form_data.state == 'Manipur' %}selected{% endif %}>Manipur</option>
+                                    <option {% if form_data.state == 'Meghalaya' %}selected{% endif %}>Meghalaya</option>
+                                    <option {% if form_data.state == 'Mizoram' %}selected{% endif %}>Mizoram</option>
+                                    <option {% if form_data.state == 'Nagaland' %}selected{% endif %}>Nagaland</option>
+                                    <option {% if form_data.state == 'Odisha' %}selected{% endif %}>Odisha</option>
+                                    <option {% if form_data.state == 'Punjab' %}selected{% endif %}>Punjab</option>
+                                    <option {% if form_data.state == 'Rajasthan' %}selected{% endif %}>Rajasthan</option>
+                                    <option {% if form_data.state == 'Sikkim' %}selected{% endif %}>Sikkim</option>
+                                    <option {% if form_data.state == 'Tamil Nadu' %}selected{% endif %}>Tamil Nadu</option>
+                                    <option {% if form_data.state == 'Telangana' %}selected{% endif %}>Telangana</option>
+                                    <option {% if form_data.state == 'Tripura' %}selected{% endif %}>Tripura</option>
+                                    <option {% if form_data.state == 'Uttar Pradesh' %}selected{% endif %}>Uttar Pradesh</option>
+                                    <option {% if form_data.state == 'Uttarakhand' %}selected{% endif %}>Uttarakhand</option>
+                                    <option {% if form_data.state == 'West Bengal' %}selected{% endif %}>West Bengal</option>
+                                    <option {% if form_data.state == 'Andaman and Nicobar Islands' %}selected{% endif %}>Andaman and Nicobar Islands</option>
+                                    <option {% if form_data.state == 'Chandigarh' %}selected{% endif %}>Chandigarh</option>
+                                    <option {% if form_data.state == 'Dadra and Nagar Haveli and Daman and Diu' %}selected{% endif %}>Dadra and Nagar Haveli and Daman and Diu</option>
+                                    <option {% if form_data.state == 'Delhi' %}selected{% endif %}>Delhi</option>
+                                    <option {% if form_data.state == 'Jammu and Kashmir' %}selected{% endif %}>Jammu and Kashmir</option>
+                                    <option {% if form_data.state == 'Ladakh' %}selected{% endif %}>Ladakh</option>
+                                    <option {% if form_data.state == 'Lakshadweep' %}selected{% endif %}>Lakshadweep</option>
+                                    <option {% if form_data.state == 'Puducherry' %}selected{% endif %}>Puducherry</option>
                                 </select>
                                 <div class="invalid-feedback" id="state_feedback">
                                     Please select a state or union territory.
@@ -403,6 +411,7 @@
                                         minlength="6"
                                         maxlength="6"
                                         inputmode="numeric"
+                                        value="{{ form_data.pin_code|default:'' }}"
                                         required
                                         aria-describedby="pin_feedback"
                                     >
@@ -431,6 +440,7 @@
                                         min="1"
                                         max="200"
                                         step="1"
+                                        value="{{ form_data.num_floors|default:'' }}"
                                         required
                                         aria-describedby="num_floors_feedback"
                                     >
@@ -459,6 +469,7 @@
                                         min="0.01"
                                         max="9999999"
                                         step="0.01"
+                                        value="{{ form_data.builtup_area|default:'' }}"
                                         required
                                         aria-describedby="builtup_area_feedback"
                                     >
@@ -467,7 +478,8 @@
                                         Enter a positive value in square metres (e.g. 150.00).
                                     </div>
                                 </div>
-                                <div class="form-text">Total built-up area across all floors, up to 2 decimal places.</div>
+                                <div class="form-text">Total built-up area across all floors, up to 2 decimal places.
+                                </div>
                             </div>
 
                             <!-- Year of Construction -->
@@ -485,17 +497,19 @@
                                         id="id_year_construction"
                                         name="year_construction"
                                         placeholder="e.g. 2010"
-                                        min="1900"
+                                        min="1800"
                                         max="{{ current_year }}"
                                         step="1"
+                                        value="{{ form_data.year_construction|default:'' }}"
                                         required
                                         aria-describedby="year_construction_feedback"
                                     >
                                     <div class="invalid-feedback" id="year_construction_feedback">
-                                        Enter a 4-digit year between 1900 and the current year.
+                                        Enter a 4-digit year between 1800 and the current year.
                                     </div>
                                 </div>
-                                <div class="form-text">Year the building was originally constructed (not a future year).</div>
+                                <div class="form-text">Year the building was originally constructed (not a future year).
+                                </div>
                             </div>
 
                             <!-- Occupancy Type -->
@@ -503,23 +517,23 @@
                                 <label for="id_occupancy_type" class="form-label fw-semibold">
                                     Occupancy Type <span class="text-danger">*</span>
                                     <i class="bi bi-question-circle text-muted ms-1" data-bs-toggle="tooltip"
-                                       title="Occupancy type as per National Building Code (NBC) of India"></i>
+                                        title="Occupancy type as per National Building Code (NBC) of India"></i>
                                 </label>
                                 <div class="input-group has-validation">
                                     <span class="input-group-text bg-white border-end-0">
                                         <i class="bi bi-people text-muted"></i>
                                     </span>
-                                    <select class="form-select border-start-0" id="id_occupancy_type" name="occupancy_type" required
-                                            aria-describedby="occupancy_type_feedback">
-                                        <option value="" disabled selected>— Select Occupancy Type (NBC) —</option>
-                                        <option value="RESIDENTIAL">Residential</option>
-                                        <option value="BUSINESS">Business</option>
-                                        <option value="ASSEMBLY">Assembly</option>
-                                        <option value="INDUSTRIAL">Industrial</option>
-                                        <option value="STORAGE">Storage</option>
-                                        <option value="EDUCATIONAL">Educational</option>
-                                        <option value="HEALTHCARE">Healthcare</option>
-                                        <option value="MIXED_USE">Mixed Use</option>
+                                    <select class="form-select border-start-0" id="id_occupancy_type"
+                                        name="occupancy_type" required aria-describedby="occupancy_type_feedback">
+                                        <option value="" disabled {% if not form_data.occupancy_type %}selected{% endif %}>— Select Occupancy Type (NBC) —</option>
+                                        <option value="RESIDENTIAL" {% if form_data.occupancy_type == 'RESIDENTIAL' %}selected{% endif %}>Residential</option>
+                                        <option value="BUSINESS" {% if form_data.occupancy_type == 'BUSINESS' %}selected{% endif %}>Business</option>
+                                        <option value="ASSEMBLY" {% if form_data.occupancy_type == 'ASSEMBLY' %}selected{% endif %}>Assembly</option>
+                                        <option value="INDUSTRIAL" {% if form_data.occupancy_type == 'INDUSTRIAL' %}selected{% endif %}>Industrial</option>
+                                        <option value="STORAGE" {% if form_data.occupancy_type == 'STORAGE' %}selected{% endif %}>Storage</option>
+                                        <option value="EDUCATIONAL" {% if form_data.occupancy_type == 'EDUCATIONAL' %}selected{% endif %}>Educational</option>
+                                        <option value="HEALTHCARE" {% if form_data.occupancy_type == 'HEALTHCARE' %}selected{% endif %}>Healthcare</option>
+                                        <option value="MIXED_USE" {% if form_data.occupancy_type == 'MIXED_USE' %}selected{% endif %}>Mixed Use</option>
                                     </select>
                                     <div class="invalid-feedback" id="occupancy_type_feedback">
                                         Please select an occupancy type.
@@ -552,23 +566,25 @@
                                     Application Type <span class="text-danger">*</span>
                                 </label>
                                 <div class="d-flex flex-column gap-2" id="application_type_group">
-                                    <div class="form-check app-form-radio-card">
+                                    <div class="form-check app-form-radio-card {% if form_data.application_type == 'NEW_NOC' or not form_data.application_type %}selected{% endif %}">
                                         <input class="form-check-input" type="radio" name="application_type"
-                                               id="app_type_new" value="NEW_NOC" required>
+                                               id="app_type_new" value="NEW_NOC" {% if form_data.application_type == 'NEW_NOC' or not form_data.application_type %}checked{% endif %} required>
                                         <label class="form-check-label d-flex align-items-start gap-2 w-100 cursor-pointer" for="app_type_new">
                                             <div>
                                                 <span class="fw-semibold d-block">New NOC</span>
-                                                <small class="text-muted">First-time Fire NOC application for a building</small>
+                                                <small class="text-muted">First-time Fire NOC application for a
+                                                    building</small>
                                             </div>
                                         </label>
                                     </div>
-                                    <div class="form-check app-form-radio-card">
+                                    <div class="form-check app-form-radio-card {% if form_data.application_type == 'RENEWAL' %}selected{% endif %}">
                                         <input class="form-check-input" type="radio" name="application_type"
-                                               id="app_type_renewal" value="RENEWAL">
+                                               id="app_type_renewal" value="RENEWAL" {% if form_data.application_type == 'RENEWAL' %}checked{% endif %}>
                                         <label class="form-check-label d-flex align-items-start gap-2 w-100 cursor-pointer" for="app_type_renewal">
                                             <div>
                                                 <span class="fw-semibold d-block">NOC Renewal</span>
-                                                <small class="text-muted">Renew an existing, previously issued Fire NOC</small>
+                                                <small class="text-muted">Renew an existing, previously issued Fire
+                                                    NOC</small>
                                             </div>
                                         </label>
                                     </div>
@@ -584,16 +600,12 @@
                                     Purpose of Application <span class="text-danger">*</span>
                                 </label>
                                 <div class="has-validation">
-                                    <textarea
-                                        class="form-control"
-                                        id="id_purpose"
-                                        name="purpose"
-                                        rows="3"
+                                    <textarea class="form-control" id="id_purpose" name="purpose" rows="3"
                                         placeholder="Briefly describe why you are applying for a Fire NOC (e.g., 'Required for occupancy certificate from local municipality', 'Business license renewal', etc.)"
                                         maxlength="1000"
                                         required
                                         aria-describedby="purpose_feedback purpose_help"
-                                    ></textarea>
+                                    >{{ form_data.purpose|default:'' }}</textarea>
                                     <div class="invalid-feedback" id="purpose_feedback">
                                         Please specify the purpose of this Fire NOC application.
                                     </div>
@@ -608,17 +620,14 @@
                             <div class="col-12">
                                 <label for="id_remarks" class="form-label fw-semibold">
                                     Additional Remarks
-                                    <span class="badge bg-secondary-subtle text-secondary border ms-1 fw-normal" style="font-size:0.7rem;">Optional</span>
+                                    <span class="badge bg-secondary-subtle text-secondary border ms-1 fw-normal"
+                                        style="font-size:0.7rem;">Optional</span>
                                 </label>
-                                <textarea
-                                    class="form-control"
-                                    id="id_remarks"
-                                    name="remarks"
-                                    rows="3"
+                                <textarea class="form-control" id="id_remarks" name="remarks" rows="3"
                                     placeholder="Any additional information the fire department should know — e.g., recent structural modifications, existing NOC reference number for renewal, previous inspection dates, etc."
                                     maxlength="2000"
                                     aria-describedby="remarks_help"
-                                ></textarea>
+                                >{{ form_data.remarks|default:'' }}</textarea>
                                 <div id="remarks_help" class="form-text d-flex justify-content-between">
                                     <span>Optional. Max 2000 characters.</span>
                                     <span id="remarks_char_count" class="text-muted">0 / 2000</span>
@@ -638,9 +647,10 @@
                     <div class="card-body p-4">
                         <!-- Declaration -->
                         <div class="form-check has-validation mb-4">
-                            <input class="form-check-input" type="checkbox" id="id_declaration" name="declaration" required aria-describedby="declaration_feedback">
+                            <input class="form-check-input" type="checkbox" id="id_declaration" name="declaration" required {% if form_data.declaration %}checked{% endif %} aria-describedby="declaration_feedback">
                             <label class="form-check-label small" for="id_declaration">
-                                I hereby declare that all information provided in this application is true, complete, and
+                                I hereby declare that all information provided in this application is true, complete,
+                                and
                                 accurate to the best of my knowledge. I understand that providing false information may
                                 result in rejection of this application and legal action under applicable laws.
                                 <span class="text-danger">*</span>
@@ -653,22 +663,20 @@
                         <!-- Buttons -->
                         <div class="d-flex flex-wrap gap-3 align-items-center justify-content-between">
                             <div class="d-flex flex-wrap gap-2">
-                                <!-- Save as Draft placeholder -->
+                                <!-- Save as Draft placeholder (not supported in current agreed schema) -->
                                 <button type="button" class="btn btn-outline-secondary px-4"
                                         data-bs-toggle="tooltip"
-                                        title="Draft saving will be enabled in an upcoming release"
+                                        title="Save as Draft is not supported in the current agreed database schema"
                                         disabled>
                                     <i class="bi bi-floppy me-2"></i>Save as Draft
                                 </button>
-                                <!-- Submit placeholder -->
-                                <button type="button" class="btn btn-danger px-5"
-                                        onclick="handleFormSubmit(event)"
-                                        data-bs-toggle="tooltip"
-                                        title="Validates all building details and form sections">
+                                <!-- Submit button -->
+                                <button type="submit" id="btnSubmitApplication" class="btn btn-danger px-5">
                                     <i class="bi bi-send me-2"></i>Submit Application
                                 </button>
                             </div>
-                            <a href="{% url 'applicants:dashboard' %}" class="btn btn-link text-muted text-decoration-none">
+                            <a href="{% url 'applicants:dashboard' %}"
+                                class="btn btn-link text-muted text-decoration-none">
                                 <i class="bi bi-x-lg me-1"></i>Cancel
                             </a>
                         </div>
@@ -676,7 +684,7 @@
                         <!-- Submission note -->
                         <div class="alert alert-light border small text-muted mt-3 mb-0">
                             <i class="bi bi-info-circle text-primary me-2"></i>
-                            <strong>Note:</strong> Application submission and document upload functionality will be enabled in the next commit. Currently this form validates building details and interactive UI fields.
+                            <strong>Note:</strong> Submitting this form creates an official Fire NOC application record in the system and routes it to the Fire Safety Inspection Officer for verification.
                         </div>
                     </div>
                 </div>
@@ -691,4 +699,3 @@
 {% block extra_js %}
 <script src="{% static 'js/application_form.js' %}"></script>
 {% endblock %}
-

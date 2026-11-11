@@ -1,3 +1,5 @@
+import datetime
+from decimal import Decimal, InvalidOperation
 import re
 from django.apps import apps
 from django.contrib import messages
@@ -7,8 +9,10 @@ from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.shortcuts import render, redirect
 from django.utils.http import url_has_allowed_host_and_scheme
+from .models import Application
 
 
 def get_applicant_dashboard_data(user):
@@ -138,24 +142,234 @@ def dashboard(request):
 def application_new(request):
     """
     Applicant – New Fire NOC Application form view.
-    Renders a multi-section application form pre-filled with the authenticated
-    applicant's existing profile information (name, email).
-    POST submission logic is NOT implemented in this commit; this view only
-    handles GET requests and renders the template.
+    GET: Renders a multi-section application form pre-filled with the authenticated
+         applicant's existing profile information (name, email).
+    POST: Validates all required fields, building parameters, occupancy, and contact details
+          on the server, saves the application to PostgreSQL using the agreed schema,
+          and redirects to the applicant dashboard.
     """
-    import datetime
-    # Pre-fill applicant details from the authenticated user profile
+    current_year = datetime.date.today().year
+
+    # Pre-fill applicant details from the authenticated user profile (security: locked to request.user)
     full_name = (
         f"{request.user.first_name} {request.user.last_name}".strip()
         or request.user.username
     )
+    email = request.user.email
+
     prefill = {
         'full_name': full_name,
-        'email': request.user.email,
+        'email': email,
     }
-    current_year = datetime.date.today().year
+
+    if request.method == 'POST':
+        # Extract submitted form values
+        mobile_number = request.POST.get('mobile_number', '').strip()
+        building_name = request.POST.get('building_name', '').strip()
+        building_type = request.POST.get('building_type', '').strip()
+        building_type_other = request.POST.get('building_type_other', '').strip()
+        building_address = request.POST.get('building_address', '').strip()
+        city = request.POST.get('city', '').strip()
+        state = request.POST.get('state', '').strip()
+        pin_code = request.POST.get('pin_code', '').strip()
+        num_floors_raw = request.POST.get('num_floors', '').strip()
+        builtup_area_raw = request.POST.get('builtup_area', '').strip()
+        year_construction_raw = request.POST.get('year_construction', '').strip()
+        occupancy_type = request.POST.get('occupancy_type', '').strip()
+        application_type = request.POST.get('application_type', 'NEW_NOC').strip()
+        purpose = request.POST.get('purpose', '').strip()
+        remarks = request.POST.get('remarks', '').strip()
+        declaration = request.POST.get('declaration')
+
+        form_data = {
+            'full_name': full_name,
+            'email': email,
+            'mobile_number': mobile_number,
+            'building_name': building_name,
+            'building_type': building_type,
+            'building_type_other': building_type_other,
+            'building_address': building_address,
+            'city': city,
+            'state': state,
+            'pin_code': pin_code,
+            'num_floors': num_floors_raw,
+            'builtup_area': builtup_area_raw,
+            'year_construction': year_construction_raw,
+            'occupancy_type': occupancy_type,
+            'application_type': application_type,
+            'purpose': purpose,
+            'remarks': remarks,
+            'declaration': bool(declaration),
+        }
+
+        errors = []
+
+        # 1. Validate Mobile Number
+        if not mobile_number:
+            errors.append("Mobile Number is required.")
+        elif not re.match(r'^[6-9]\d{9}$', mobile_number):
+            errors.append("Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.")
+
+        # 2. Validate Building Name
+        if not building_name:
+            errors.append("Building / Premises Name is required.")
+        elif len(building_name) > 150:
+            errors.append("Building name cannot exceed 150 characters.")
+
+        # 3. Validate Building Type
+        allowed_building_types = [c[0] for c in Application.BUILDING_TYPE_CHOICES]
+        if not building_type:
+            errors.append("Building Type is required.")
+        elif building_type not in allowed_building_types:
+            errors.append("Invalid Building Type selected.")
+        elif building_type == 'OTHER':
+            if not building_type_other:
+                errors.append("Please describe the building type when Other is selected.")
+            elif len(building_type_other) > 100:
+                errors.append("Specified building type description cannot exceed 100 characters.")
+        else:
+            building_type_other = ''
+
+        # 4. Validate Building Address
+        if not building_address:
+            errors.append("Building Address is required.")
+        elif len(building_address) > 500:
+            errors.append("Building Address cannot exceed 500 characters.")
+
+        # 5. Validate City
+        if not city:
+            errors.append("City / Town is required.")
+        elif len(city) > 100:
+            errors.append("City name cannot exceed 100 characters.")
+
+        # 6. Validate State
+        if not state:
+            errors.append("State is required.")
+        elif len(state) > 100:
+            errors.append("State name cannot exceed 100 characters.")
+
+        # 7. Validate PIN Code
+        if not pin_code:
+            errors.append("PIN Code is required.")
+        elif not re.match(r'^[1-9]\d{5}$', pin_code):
+            errors.append("Please enter a valid 6-digit Indian PIN code (cannot start with 0).")
+
+        # 8. Validate Number of Floors
+        floors = None
+        if not num_floors_raw:
+            errors.append("Number of Floors is required.")
+        else:
+            try:
+                floors = int(num_floors_raw)
+                if floors < 1 or floors > 200 or '.' in num_floors_raw:
+                    errors.append("Number of Floors must be a positive whole number between 1 and 200.")
+            except (ValueError, TypeError):
+                errors.append("Number of Floors must be a valid positive whole number.")
+
+        # 9. Validate Built-up Area
+        builtup_area_dec = None
+        if not builtup_area_raw:
+            errors.append("Built-up Area is required.")
+        else:
+            try:
+                builtup_area_dec = Decimal(builtup_area_raw)
+                if builtup_area_dec <= Decimal('0'):
+                    errors.append("Built-up Area must be a positive number greater than 0.")
+                elif builtup_area_dec > Decimal('9999999.99'):
+                    errors.append("Built-up Area exceeds maximum allowed value.")
+            except (InvalidOperation, TypeError):
+                errors.append("Built-up Area must be a valid numeric decimal value in square meters.")
+
+        # 10. Validate Year of Construction
+        year_val = None
+        if not year_construction_raw:
+            errors.append("Year of Construction is required.")
+        else:
+            try:
+                year_val = int(year_construction_raw)
+                if year_val < 1800 or year_val > current_year:
+                    errors.append(f"Year of Construction must be between 1800 and {current_year}.")
+            except (ValueError, TypeError):
+                errors.append("Year of Construction must be a valid 4-digit year.")
+
+        # 11. Validate Occupancy Type
+        allowed_occupancies = [c[0] for c in Application.OCCUPANCY_CHOICES]
+        if not occupancy_type:
+            errors.append("Occupancy Type is required.")
+        elif occupancy_type not in allowed_occupancies:
+            errors.append("Invalid Occupancy Type selected.")
+
+        # 12. Validate Application Type
+        allowed_app_types = [c[0] for c in Application.APPLICATION_TYPE_CHOICES]
+        if not application_type:
+            errors.append("Application Type is required.")
+        elif application_type not in allowed_app_types:
+            errors.append("Invalid Application Type selected.")
+
+        # 13. Validate Purpose
+        if not purpose:
+            errors.append("Purpose of Application is required.")
+        elif len(purpose) > 1000:
+            errors.append("Purpose of Application cannot exceed 1000 characters.")
+
+        # 14. Validate Remarks
+        if remarks and len(remarks) > 2000:
+            errors.append("Additional Remarks cannot exceed 2000 characters.")
+
+        # 15. Validate Declaration
+        if not declaration:
+            errors.append("You must declare and certify the accuracy of all submitted information.")
+
+        # If validation errors occurred, display messages and preserve form values
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+            return render(request, 'applicants/application_form.html', {
+                'prefill': prefill,
+                'form_data': form_data,
+                'current_year': current_year,
+            })
+
+        # Save Application record using atomic database transaction
+        with transaction.atomic():
+            application = Application.objects.create(
+                applicant=request.user,
+                full_name=full_name,
+                email=email,
+                mobile_number=mobile_number,
+                building_name=building_name,
+                building_type=building_type,
+                building_type_other=building_type_other,
+                building_address=building_address,
+                city=city,
+                state=state,
+                pin_code=pin_code,
+                num_floors=floors,
+                builtup_area=builtup_area_dec,
+                year_construction=year_val,
+                occupancy_type=occupancy_type,
+                application_type=application_type,
+                purpose=purpose,
+                remarks=remarks,
+                status='PENDING',
+            )
+
+        messages.success(
+            request,
+            f"Application {application.application_id} submitted successfully! "
+            f"Your Fire NOC application for '{application.building_name}' has been received and is pending review."
+        )
+        return redirect('applicants:dashboard')
+
+    # GET request: render empty / prefilled form
+    form_data = {
+        'full_name': full_name,
+        'email': email,
+        'application_type': 'NEW_NOC',
+    }
     return render(request, 'applicants/application_form.html', {
         'prefill': prefill,
+        'form_data': form_data,
         'current_year': current_year,
     })
 
