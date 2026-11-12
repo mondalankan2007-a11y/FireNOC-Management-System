@@ -529,6 +529,7 @@ class ApplicationFormViewTests(TestCase):
     def setUp(self):
         self.form_url = reverse('applicants:application_new')
         self.login_url = reverse('login')
+        self.dashboard_url = reverse('applicants:dashboard')
         self.user = User.objects.create_user(
             username='applicant@firenoc.gov.in',
             email='applicant@firenoc.gov.in',
@@ -536,6 +537,24 @@ class ApplicationFormViewTests(TestCase):
             first_name='Ankan',
             last_name='Mondal',
         )
+        self.valid_application_data = {
+            'mobile_number': '9876543210',
+            'building_name': 'Skyline Heights Commercial Center',
+            'building_type': 'COMMERCIAL',
+            'building_type_other': '',
+            'building_address': '123 Park Avenue, Sector 5, Salt Lake',
+            'city': 'Kolkata',
+            'state': 'West Bengal',
+            'pin_code': '700091',
+            'num_floors': '12',
+            'builtup_area': '4500.50',
+            'year_construction': '2021',
+            'occupancy_type': 'BUSINESS',
+            'application_type': 'NEW_NOC',
+            'purpose': 'Initial Fire Safety Clearance Certificate for commercial occupancy.',
+            'remarks': 'Equipped with dry riser, wet riser and addressable smoke alarms.',
+            'declaration': 'on',
+        }
 
     def test_unauthenticated_user_redirected_to_login(self):
         """Unauthenticated access to /applicant/applications/new/ redirects to /login/."""
@@ -645,11 +664,182 @@ class ApplicationFormViewTests(TestCase):
         self.assertContains(response, 'min="0.01"')
         self.assertContains(response, 'step="0.01"')
 
-        # 6. Year of Construction: 1900 to current year
-        self.assertContains(response, 'min="1900"')
+        # 6. Year of Construction: 1800 to current year
+        self.assertContains(response, 'min="1800"')
         self.assertIn('current_year', response.context)
         self.assertEqual(response.context['current_year'], datetime.date.today().year)
 
         # 7. Form validation status element & static JS link
         self.assertContains(response, 'id="formValidationStatus"')
         self.assertContains(response, 'js/application_form.js')
+
+    # =========================================================
+    # Application Submission & PostgreSQL Backend Tests
+    # =========================================================
+
+    def test_successful_application_submission(self):
+        """
+        Verify that submitting valid form data creates an Application in PostgreSQL,
+        generates a unique reference ID, sets status to PENDING, and redirects to dashboard.
+        """
+        self.client.force_login(self.user)
+        response = self.client.post(self.form_url, self.valid_application_data, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, self.dashboard_url)
+        self.assertContains(response, "submitted successfully")
+
+        # Verify record in database
+        from applicants.models import Application
+        app = Application.objects.get(applicant=self.user)
+        self.assertEqual(app.full_name, 'Ankan Mondal')
+        self.assertEqual(app.email, 'applicant@firenoc.gov.in')
+        self.assertEqual(app.mobile_number, '9876543210')
+        self.assertEqual(app.building_name, 'Skyline Heights Commercial Center')
+        self.assertEqual(app.building_type, 'COMMERCIAL')
+        self.assertEqual(app.city, 'Kolkata')
+        self.assertEqual(app.state, 'West Bengal')
+        self.assertEqual(app.pin_code, '700091')
+        self.assertEqual(app.num_floors, 12)
+        self.assertEqual(float(app.builtup_area), 4500.50)
+        self.assertEqual(app.year_construction, 2021)
+        self.assertEqual(app.occupancy_type, 'BUSINESS')
+        self.assertEqual(app.application_type, 'NEW_NOC')
+        self.assertEqual(app.status, 'PENDING')
+        self.assertTrue(app.application_id.startswith('NOC-'))
+
+    def test_unauthenticated_post_submission_redirects_to_login(self):
+        """Unauthenticated POST request does not save data and redirects to login."""
+        from applicants.models import Application
+        response = self.client.post(self.form_url, self.valid_application_data)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={self.form_url}")
+        self.assertEqual(Application.objects.count(), 0)
+
+    def test_missing_required_fields_fails_and_preserves_values(self):
+        """POST with missing required fields fails and preserves entered form values."""
+        from applicants.models import Application
+        self.client.force_login(self.user)
+        incomplete_data = self.valid_application_data.copy()
+        incomplete_data['building_name'] = ''
+        incomplete_data['pin_code'] = ''
+
+        response = self.client.post(self.form_url, incomplete_data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Building / Premises Name is required.")
+        self.assertContains(response, "PIN Code is required.")
+        self.assertEqual(Application.objects.count(), 0)
+        # Verify entered city is preserved in context
+        self.assertEqual(response.context['form_data']['city'], 'Kolkata')
+
+    def test_invalid_pin_code_rejection(self):
+        """PIN code not matching Indian 6-digit format is rejected."""
+        from applicants.models import Application
+        self.client.force_login(self.user)
+        data = self.valid_application_data.copy()
+        data['pin_code'] = '012345'  # starts with 0
+
+        response = self.client.post(self.form_url, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "valid 6-digit Indian PIN code")
+        self.assertEqual(Application.objects.count(), 0)
+
+    def test_invalid_floor_count_rejection(self):
+        """Floors <= 0 or > 200 is rejected."""
+        from applicants.models import Application
+        self.client.force_login(self.user)
+        data = self.valid_application_data.copy()
+        data['num_floors'] = '0'
+
+        response = self.client.post(self.form_url, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "positive whole number between 1 and 200")
+        self.assertEqual(Application.objects.count(), 0)
+
+    def test_invalid_builtup_area_rejection(self):
+        """Built-up area <= 0 is rejected."""
+        from applicants.models import Application
+        self.client.force_login(self.user)
+        data = self.valid_application_data.copy()
+        data['builtup_area'] = '-50.00'
+
+        response = self.client.post(self.form_url, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "positive number greater than 0")
+        self.assertEqual(Application.objects.count(), 0)
+
+    def test_invalid_construction_year_rejection(self):
+        """Future construction year or year < 1800 is rejected."""
+        from applicants.models import Application
+        self.client.force_login(self.user)
+        data = self.valid_application_data.copy()
+        data['year_construction'] = '2099'
+
+        response = self.client.post(self.form_url, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Year of Construction must be between")
+        self.assertEqual(Application.objects.count(), 0)
+
+    def test_invalid_mobile_number_rejection(self):
+        """Mobile number not 10 digits or invalid prefix is rejected."""
+        from applicants.models import Application
+        self.client.force_login(self.user)
+        data = self.valid_application_data.copy()
+        data['mobile_number'] = '1234567890'
+
+        response = self.client.post(self.form_url, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "valid 10-digit Indian mobile number")
+        self.assertEqual(Application.objects.count(), 0)
+
+    def test_other_building_type_requires_description(self):
+        """When Building Type is OTHER, description is required."""
+        from applicants.models import Application
+        self.client.force_login(self.user)
+        data = self.valid_application_data.copy()
+        data['building_type'] = 'OTHER'
+        data['building_type_other'] = ''
+
+        response = self.client.post(self.form_url, data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Please describe the building type when Other is selected.")
+        self.assertEqual(Application.objects.count(), 0)
+
+        # Providing description succeeds
+        data['building_type_other'] = 'High-Tech Research Laboratory'
+        resp_ok = self.client.post(self.form_url, data, follow=True)
+        self.assertEqual(resp_ok.status_code, 200)
+        app = Application.objects.get(applicant=self.user)
+        self.assertEqual(app.building_type, 'OTHER')
+        self.assertEqual(app.building_type_other, 'High-Tech Research Laboratory')
+
+    def test_applicant_ownership_security(self):
+        """Application is always bound to request.user, ignoring any submitted spoofed ID."""
+        from applicants.models import Application
+        other_user = User.objects.create_user(
+            username='victim@firenoc.gov.in',
+            email='victim@firenoc.gov.in',
+            password='SomePassword#2026'
+        )
+        self.client.force_login(self.user)
+        data = self.valid_application_data.copy()
+        data['applicant'] = other_user.id  # attempt spoofing
+
+        self.client.post(self.form_url, data, follow=True)
+        app = Application.objects.get(building_name=data['building_name'])
+        self.assertEqual(app.applicant, self.user)
+        self.assertNotEqual(app.applicant, other_user)
+
+    def test_dashboard_statistics_updated_after_submission(self):
+        """Dashboard dynamic counters and recent applications table reflect newly submitted record."""
+        self.client.force_login(self.user)
+        self.client.post(self.form_url, self.valid_application_data, follow=True)
+
+        resp = self.client.get(self.dashboard_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context['stats']['total_applications'], 1)
+        self.assertEqual(resp.context['stats']['pending_applications'], 1)
+        self.assertEqual(resp.context['stats']['approved_applications'], 0)
+        self.assertEqual(len(resp.context['recent_applications']), 1)
+        self.assertContains(resp, 'Skyline Heights Commercial Center')
+        self.assertContains(resp, 'Pending Review')

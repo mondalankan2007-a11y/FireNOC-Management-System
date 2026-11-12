@@ -1539,3 +1539,199 @@ class OfficerDeficiencyAndRecommendationTests(TestCase):
 
         resp2 = self.client.get(self.officer_home_url)
         self.assertEqual(resp2.context['stats']['applications_ready_for_recommendation'], 1)
+
+
+# ===========================================================================
+# Commit 6 Tests: End-to-End Integration (Applicant -> Officer Lifecycle)
+# ===========================================================================
+
+class OfficerEndToEndIntegrationTests(TestCase):
+    """
+    End-to-end integration test verifying the complete flow:
+    Applicant submits -> Officer views -> Officer verifies docs ->
+    Officer schedules inspection -> completes inspection -> creates deficiency ->
+    rectification submitted -> officer accepts & closes -> re-inspection ->
+    officer recommends approval.
+    """
+
+    def setUp(self):
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, self.officer_profile = create_officer_user(
+            username='e2e_officer',
+            email='e2e_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-E2E-1',
+            first_name='Integration',
+            last_name='Officer',
+        )
+        self.applicant_password = 'ApplicantPass#2026'
+        self.applicant_user = User.objects.create_user(
+            username='e2e_applicant@firenoc.gov.in',
+            email='e2e_applicant@firenoc.gov.in',
+            password=self.applicant_password,
+            first_name='Ankan',
+            last_name='Applicant',
+        )
+
+    def test_end_to_end_applicant_to_officer_workflow(self):
+        # 1. Applicant submits application
+        self.client.login(username=self.applicant_user.username, password=self.applicant_password)
+        app_data = {
+            'mobile_number': '9876543210',
+            'building_name': 'E2E Commercial Complex',
+            'building_type': 'COMMERCIAL',
+            'building_type_other': '',
+            'building_address': '45 Tech Boulevard',
+            'city': 'Kolkata',
+            'state': 'West Bengal',
+            'pin_code': '700091',
+            'num_floors': '10',
+            'builtup_area': '3500.00',
+            'year_construction': '2022',
+            'occupancy_type': 'BUSINESS',
+            'application_type': 'NEW_NOC',
+            'purpose': 'E2E Testing NOC application.',
+            'remarks': 'Equipped with sprinklers.',
+            'declaration': 'on',
+        }
+        res_submit = self.client.post(reverse('applicants:application_new'), app_data)
+        self.assertEqual(res_submit.status_code, 302)
+
+        application = Application.objects.get(applicant=self.applicant_user)
+        self.assertEqual(application.status, 'PENDING')
+
+        # 2. Officer logs in and views applications list
+        self.client.logout()
+        self.client.login(username='e2e_officer', password=self.officer_password)
+
+        res_list = self.client.get(reverse('officers:application_list'))
+        self.assertEqual(res_list.status_code, 200)
+        self.assertContains(res_list, application.application_id)
+
+        # 3. Officer views detail and verifies document
+        res_detail = self.client.get(reverse('officers:application_detail', args=[application.pk]))
+        self.assertEqual(res_detail.status_code, 200)
+
+        doc = ApplicationDocument.objects.create(
+            application=application,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Architectural Layout Plan',
+            file=SimpleUploadedFile('plan.pdf', b'%PDF-1.4 mock content', content_type='application/pdf'),
+        )
+
+        res_vdoc = self.client.post(reverse('officers:document_verify', args=[application.pk, doc.pk]), {
+            'action': 'VERIFY',
+            'officer_remarks': 'Document is clear and compliant.',
+        })
+        self.assertEqual(res_vdoc.status_code, 302)
+
+        # Officer marks review as DOCUMENTS_VERIFIED
+        res_review = self.client.post(reverse('officers:application_review', args=[application.pk]), {
+            'verification_status': 'DOCUMENTS_VERIFIED',
+            'officer_remarks': 'All pre-inspection documents verified.',
+        })
+        self.assertEqual(res_review.status_code, 302)
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'DOCUMENTS_VERIFIED')
+
+        # 4. Officer schedules inspection
+        res_sched = self.client.post(reverse('officers:schedule_inspection', args=[application.pk]), {
+            'scheduled_date': '2026-11-20',
+            'scheduled_time': '10:00',
+            'lead_officer': self.officer_user.pk,
+            'inspection_type': 'SITE_INSPECTION',
+            'scope_notes': 'Full building inspection.',
+        })
+        self.assertEqual(res_sched.status_code, 302)
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'UNDER_INSPECTION')
+
+        inspection = application.inspections.first()
+        self.assertEqual(inspection.status, Inspection.STATUS_SCHEDULED)
+
+        # 5. Officer starts inspection
+        res_start = self.client.post(reverse('officers:inspection_start', args=[inspection.pk]))
+        self.assertEqual(res_start.status_code, 302)
+        inspection.refresh_from_db()
+        self.assertEqual(inspection.status, Inspection.STATUS_IN_PROGRESS)
+
+        # 6. Officer completes inspection with report requiring rectification
+        res_comp = self.client.post(reverse('officers:inspection_complete', args=[inspection.pk]), {
+            'overall_result': InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+            'general_observations': 'Blocked staircases need clearing.',
+            'officer_remarks': 'Blockages in egress.',
+        })
+        self.assertEqual(res_comp.status_code, 302)
+        inspection.refresh_from_db()
+        self.assertEqual(inspection.status, Inspection.STATUS_COMPLETED)
+
+        # 7. Officer logs deficiency
+        res_def = self.client.post(reverse('officers:deficiency_create', args=[inspection.pk]), {
+            'title': 'Emergency exit blocked',
+            'description': 'Staircase B exit is obstructed by storage items.',
+            'severity': Deficiency.SEVERITY_MAJOR,
+        })
+        self.assertEqual(res_def.status_code, 302)
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'DEFICIENT')
+
+        deficiency = application.deficiencies.first()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_OPEN)
+
+        # 8. Rectification submitted
+        res_rect = self.client.post(reverse('officers:deficiency_rectify', args=[deficiency.pk]), {
+            'description': 'All obstructions cleared from Staircase B.',
+        })
+        self.assertEqual(res_rect.status_code, 302)
+        deficiency.refresh_from_db()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_SUBMITTED)
+
+        # 9. Officer reviews and accepts rectification
+        rectification = deficiency.rectifications.first()
+        res_rev_rect = self.client.post(reverse('officers:rectification_review', args=[deficiency.pk, rectification.pk]), {
+            'action': 'ACCEPT',
+            'remarks': 'Photographic proof confirmed clear.',
+        })
+        self.assertEqual(res_rev_rect.status_code, 302)
+        deficiency.refresh_from_db()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_VERIFIED)
+
+        # 10. Officer closes deficiency -> transitions back to UNDER_INSPECTION
+        res_close = self.client.post(reverse('officers:deficiency_close', args=[deficiency.pk]))
+        self.assertEqual(res_close.status_code, 302)
+        deficiency.refresh_from_db()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_CLOSED)
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'UNDER_INSPECTION')
+
+        # 11. Schedule and complete re-inspection satisfactorily
+        res_sched2 = self.client.post(reverse('officers:schedule_inspection', args=[application.pk]), {
+            'scheduled_date': '2026-11-22',
+            'scheduled_time': '11:00',
+            'lead_officer': self.officer_user.pk,
+            'inspection_type': 'RE_INSPECTION',
+            'scope_notes': 'Verification of resolved deficiencies.',
+        })
+        self.assertEqual(res_sched2.status_code, 302)
+        re_inspection = application.inspections.order_by('-pk').first()
+
+        self.client.post(reverse('officers:inspection_start', args=[re_inspection.pk]))
+        res_comp2 = self.client.post(reverse('officers:inspection_complete', args=[re_inspection.pk]), {
+            'overall_result': InspectionReport.RESULT_SATISFACTORY,
+            'general_observations': 'All safety measures fully compliant.',
+            'officer_remarks': 'Passed site inspection.',
+        })
+        self.assertEqual(res_comp2.status_code, 302)
+
+        # 12. Check recommendation eligibility
+        self.assertTrue(application.is_ready_for_officer_recommendation())
+
+        # 13. Submit officer recommendation
+        res_rec = self.client.post(reverse('officers:application_recommend', args=[application.pk]), {
+            'recommendation': 'RECOMMENDED_FOR_APPROVAL',
+            'remarks': 'Site and documents compliant with fire safety codes.',
+        })
+        self.assertEqual(res_rec.status_code, 302)
+        application.refresh_from_db()
+        review = application.officer_review
+        self.assertEqual(review.recommendation, 'RECOMMENDED_FOR_APPROVAL')

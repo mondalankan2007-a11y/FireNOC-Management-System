@@ -450,12 +450,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 firstInvalidElement.focus();
             }
         } else {
-            // Scroll to the success banner so the user sees the confirmation
-            if (validationStatusAlert) {
-                validationStatusAlert.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // Prevent duplicate submissions caused by accidental repeated clicks
+            const submitBtn = document.getElementById('btnSubmitApplication');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Submitting Application...';
             }
+            // Submit the form to PostgreSQL backend
+            form.submit();
         }
     };
+
+    // Attach submit event listener to the form
+    form.addEventListener('submit', window.handleFormSubmit);
 
     // 7. Sticky section navigator scroll spy
     const sections = [

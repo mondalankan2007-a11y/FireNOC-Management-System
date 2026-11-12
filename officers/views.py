@@ -176,7 +176,7 @@ def application_list(request):
 
     queryset = Application.objects.select_related('applicant').prefetch_related('documents__verification').all()
 
-    if status_filter in ['PENDING', 'UNDER_REVIEW', 'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED', 'REJECTED']:
+    if status_filter in ['PENDING', 'UNDER_REVIEW', 'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED', 'REJECTED', 'DEFICIENT']:
         queryset = queryset.filter(status=status_filter)
 
     if search_query:
@@ -555,7 +555,7 @@ def officer_logout(request):
 CHECKLIST_ITEM_TYPES = [t[0] for t in InspectionChecklistItem.ITEM_TYPES]
 
 # Application statuses that make an application eligible for inspection scheduling
-INSPECTION_ELIGIBLE_STATUSES = {'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION'}
+INSPECTION_ELIGIBLE_STATUSES = {'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'DEFICIENT'}
 
 
 def _can_modify_inspection(user, inspection):
@@ -1092,6 +1092,9 @@ def deficiency_create(request, inspection_id):
             status=Deficiency.STATUS_OPEN,
             officer_remarks=officer_remarks,
         )
+        if inspection.application.status != 'DEFICIENT':
+            inspection.application.status = 'DEFICIENT'
+            inspection.application.save(update_fields=['status', 'updated_at'])
         messages.success(request, f"Deficiency DEF-{deficiency.pk} '{deficiency.title}' logged successfully.")
         return redirect('officers:deficiency_detail', deficiency_id=deficiency.pk)
 
@@ -1241,6 +1244,13 @@ def rectification_review(request, deficiency_id, rect_id):
             deficiency.officer_remarks = review_remarks
         deficiency.save(update_fields=['status', 'officer_remarks', 'updated_at'])
 
+        has_unresolved = deficiency.application.deficiencies.exclude(
+            status__in=[Deficiency.STATUS_VERIFIED, Deficiency.STATUS_CLOSED]
+        ).exists()
+        if not has_unresolved and deficiency.application.status == 'DEFICIENT':
+            deficiency.application.status = 'UNDER_INSPECTION'
+            deficiency.application.save(update_fields=['status', 'updated_at'])
+
         messages.success(request, f"Rectification accepted. DEF-{deficiency.pk} is now Verified.")
 
     elif action == 'REJECT':
@@ -1319,6 +1329,13 @@ def deficiency_close(request, deficiency_id):
     deficiency.resolved_at = timezone.now()
     deficiency.closed_by = request.user
     deficiency.save(update_fields=['status', 'resolved_at', 'closed_by', 'updated_at'])
+
+    has_unresolved = deficiency.application.deficiencies.exclude(
+        status__in=[Deficiency.STATUS_VERIFIED, Deficiency.STATUS_CLOSED]
+    ).exists()
+    if not has_unresolved and deficiency.application.status == 'DEFICIENT':
+        deficiency.application.status = 'UNDER_INSPECTION'
+        deficiency.application.save(update_fields=['status', 'updated_at'])
 
     messages.success(request, f"DEF-{deficiency.pk} has been closed and marked resolved.")
     return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
