@@ -7,7 +7,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from .views import home
-from applicants.views import register, login_view, logout_view
+from applicants.views import register, login_view, logout_view, my_applications
 
 urlpatterns = [
     # Admin Interface
@@ -26,6 +26,9 @@ urlpatterns = [
 
     # Officer Module Routes
     path('officer/', include('officers.urls')),
+
+    # Top-level My Applications route: /applications/
+    path('applications/', my_applications, name='my_applications_root'),
 ]
 
 # Serve media files in development environment

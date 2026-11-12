@@ -12,4 +12,7 @@ urlpatterns = [
 
     # Fire NOC Application Form
     path('applications/new/', views.application_new, name='application_new'),
+
+    # My Applications listing
+    path('applications/', views.my_applications, name='my_applications'),
 ]

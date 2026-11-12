@@ -843,3 +843,279 @@ class ApplicationFormViewTests(TestCase):
         self.assertEqual(len(resp.context['recent_applications']), 1)
         self.assertContains(resp, 'Skyline Heights Commercial Center')
         self.assertContains(resp, 'Pending Review')
+
+
+class MyApplicationsViewTests(TestCase):
+    """
+    Test suite for the My Applications listing page at /applicant/applications/.
+
+    Covers:
+    1. Unauthenticated access redirect.
+    2. Applicant with no applications – empty state.
+    3. Applicant with multiple applications – table rendering.
+    4. Search by application reference number.
+    5. Search by building name.
+    6. Filter by status.
+    7. Sort by newest / oldest.
+    8. Pagination (10 per page).
+    9. Data isolation – Applicant A cannot see Applicant B's records.
+    """
+
+    def setUp(self):
+        self.url = reverse('applicants:my_applications')
+        self.login_url = reverse('login')
+
+        self.user_a = User.objects.create_user(
+            username='applicant_a@firenoc.gov.in',
+            email='applicant_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='ApplicantA',
+        )
+        self.user_b = User.objects.create_user(
+            username='applicant_b@firenoc.gov.in',
+            email='applicant_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='ApplicantB',
+        )
+
+        # Shared base data for creating Application records
+        self._base = dict(
+            full_name='Test User',
+            email='test@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_type='COMMERCIAL',
+            building_address='123 Main St',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700001',
+            num_floors=5,
+            builtup_area='1000.00',
+            year_construction=2020,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Test purpose for Fire NOC.',
+            status='PENDING',
+        )
+
+    def _make_app(self, applicant, building_name, status='PENDING', **kwargs):
+        """Helper: create an Application record for the given applicant."""
+        from applicants.models import Application
+        data = {**self._base, 'applicant': applicant, 'building_name': building_name, 'status': status}
+        data.update(kwargs)
+        return Application.objects.create(**data)
+
+    # -------------------------------------------------------------------
+    # Test 1: Unauthenticated access redirects to login
+    # -------------------------------------------------------------------
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Unauthenticated GET to /applicant/applications/ redirects to /login/?next=..."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={self.url}")
+
+    # -------------------------------------------------------------------
+    # Test 2: Applicant with no applications – empty state
+    # -------------------------------------------------------------------
+
+    def test_empty_state_when_no_applications(self):
+        """Applicant with zero applications sees the correct empty state."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/my_applications.html')
+        self.assertContains(response, "You haven't submitted any Fire NOC applications yet.")
+        self.assertContains(response, "Apply for Fire NOC")
+        self.assertEqual(response.context['page_obj'].paginator.count, 0)
+
+    # -------------------------------------------------------------------
+    # Test 3: Applicant with multiple applications – table rendering
+    # -------------------------------------------------------------------
+
+    def test_multiple_applications_rendered_in_table(self):
+        """Applicant with 3 applications sees all records in the table."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Green Heights Plaza', 'APPROVED')
+        self._make_app(self.user_a, 'City Center Tower', 'PENDING')
+        self._make_app(self.user_a, 'Metro Business Hub', 'UNDER_REVIEW')
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['page_obj'].paginator.count, 3)
+        self.assertContains(response, 'Green Heights Plaza')
+        self.assertContains(response, 'City Center Tower')
+        self.assertContains(response, 'Metro Business Hub')
+        # Status badges
+        self.assertContains(response, 'Approved')
+        self.assertContains(response, 'Pending Review')
+        self.assertContains(response, 'Under Review')
+
+    # -------------------------------------------------------------------
+    # Test 4: Search by application reference number
+    # -------------------------------------------------------------------
+
+    def test_search_by_application_reference(self):
+        """Search by application_id returns only matching records."""
+        self.client.force_login(self.user_a)
+        app1 = self._make_app(self.user_a, 'Alpha Tower')
+        app2 = self._make_app(self.user_a, 'Beta Plaza')
+
+        # Search using the generated reference of app1
+        response = self.client.get(self.url, {'q': app1.application_id})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Alpha Tower')
+        self.assertNotContains(response, 'Beta Plaza')
+
+    # -------------------------------------------------------------------
+    # Test 5: Search by building name
+    # -------------------------------------------------------------------
+
+    def test_search_by_building_name(self):
+        """Search by building name keyword returns only matching records."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Sunrise Residency')
+        self._make_app(self.user_a, 'Galaxy Commercial')
+
+        response = self.client.get(self.url, {'q': 'Sunrise'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Sunrise Residency')
+        self.assertNotContains(response, 'Galaxy Commercial')
+
+    # -------------------------------------------------------------------
+    # Test 6: Filter by status
+    # -------------------------------------------------------------------
+
+    def test_filter_by_status_pending(self):
+        """Filtering by PENDING returns only PENDING applications."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Pending Building', 'PENDING')
+        self._make_app(self.user_a, 'Approved Building', 'APPROVED')
+        self._make_app(self.user_a, 'Rejected Building', 'REJECTED')
+
+        response = self.client.get(self.url, {'status': 'PENDING'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Pending Building')
+        self.assertNotContains(response, 'Approved Building')
+        self.assertNotContains(response, 'Rejected Building')
+        self.assertEqual(response.context['page_obj'].paginator.count, 1)
+
+    def test_filter_by_status_approved(self):
+        """Filtering by APPROVED returns only APPROVED applications."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Pending Building', 'PENDING')
+        self._make_app(self.user_a, 'Approved Building', 'APPROVED')
+
+        response = self.client.get(self.url, {'status': 'APPROVED'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Approved Building')
+        self.assertNotContains(response, 'Pending Building')
+
+    def test_invalid_status_filter_is_ignored(self):
+        """An invalid status value in GET params is safely ignored."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Some Building', 'PENDING')
+
+        response = self.client.get(self.url, {'status': 'INVALID_STATUS'})
+        self.assertEqual(response.status_code, 200)
+        # All records visible (filter ignored)
+        self.assertContains(response, 'Some Building')
+        self.assertEqual(response.context['current_status'], '')
+
+    # -------------------------------------------------------------------
+    # Test 7: Sort by submission date
+    # -------------------------------------------------------------------
+
+    def test_sort_newest_first(self):
+        """Default sort (newest) returns most recently created application first."""
+        import time
+        self.client.force_login(self.user_a)
+        app_old = self._make_app(self.user_a, 'Old Building')
+        time.sleep(0.05)
+        app_new = self._make_app(self.user_a, 'New Building')
+
+        response = self.client.get(self.url, {'sort': 'newest'})
+        self.assertEqual(response.status_code, 200)
+        apps = list(response.context['applications'])
+        self.assertEqual(apps[0].building_name, 'New Building')
+        self.assertEqual(apps[1].building_name, 'Old Building')
+
+    def test_sort_oldest_first(self):
+        """Sort=oldest returns oldest application first."""
+        import time
+        self.client.force_login(self.user_a)
+        app_old = self._make_app(self.user_a, 'Old Building')
+        time.sleep(0.05)
+        app_new = self._make_app(self.user_a, 'New Building')
+
+        response = self.client.get(self.url, {'sort': 'oldest'})
+        self.assertEqual(response.status_code, 200)
+        apps = list(response.context['applications'])
+        self.assertEqual(apps[0].building_name, 'Old Building')
+        self.assertEqual(apps[1].building_name, 'New Building')
+
+    # -------------------------------------------------------------------
+    # Test 8: Pagination
+    # -------------------------------------------------------------------
+
+    def test_pagination_splits_records_into_pages_of_ten(self):
+        """15 records → page 1 shows 10, page 2 shows 5; pagination controls are rendered."""
+        self.client.force_login(self.user_a)
+        for i in range(1, 16):
+            self._make_app(self.user_a, f'Building {i:02d}')
+
+        # Page 1
+        resp_p1 = self.client.get(self.url)
+        self.assertEqual(resp_p1.status_code, 200)
+        self.assertEqual(resp_p1.context['page_obj'].paginator.count, 15)
+        self.assertEqual(len(resp_p1.context['applications']), 10)
+        self.assertTrue(resp_p1.context['page_obj'].has_next())
+        self.assertContains(resp_p1, 'page=2')
+
+        # Page 2
+        resp_p2 = self.client.get(self.url, {'page': 2})
+        self.assertEqual(resp_p2.status_code, 200)
+        self.assertEqual(len(resp_p2.context['applications']), 5)
+        self.assertFalse(resp_p2.context['page_obj'].has_next())
+
+    def test_pagination_preserves_filter_parameters(self):
+        """Pagination links preserve search and filter GET parameters."""
+        self.client.force_login(self.user_a)
+        for i in range(1, 16):
+            self._make_app(self.user_a, f'Pending Building {i:02d}', 'PENDING')
+
+        response = self.client.get(self.url, {'status': 'PENDING', 'sort': 'oldest'})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        # Pagination link should contain existing filter params
+        self.assertIn('status=PENDING', content)
+        self.assertIn('sort=oldest', content)
+
+    # -------------------------------------------------------------------
+    # Test 9: Data isolation – Applicant A cannot see Applicant B's records
+    # -------------------------------------------------------------------
+
+    def test_data_isolation_applicant_cannot_see_other_records(self):
+        """Applicant A's applications are strictly hidden from Applicant B."""
+        # Create records for A
+        self._make_app(self.user_a, 'User A Tower', 'PENDING')
+        self._make_app(self.user_a, 'User A Plaza', 'APPROVED')
+        # Create records for B
+        self._make_app(self.user_b, 'User B Hub', 'UNDER_REVIEW')
+
+        # Login as User A – should only see A's records
+        self.client.force_login(self.user_a)
+        resp_a = self.client.get(self.url)
+        self.assertEqual(resp_a.status_code, 200)
+        self.assertEqual(resp_a.context['page_obj'].paginator.count, 2)
+        self.assertContains(resp_a, 'User A Tower')
+        self.assertContains(resp_a, 'User A Plaza')
+        self.assertNotContains(resp_a, 'User B Hub')
+
+        # Login as User B – should only see B's records
+        self.client.force_login(self.user_b)
+        resp_b = self.client.get(self.url)
+        self.assertEqual(resp_b.status_code, 200)
+        self.assertEqual(resp_b.context['page_obj'].paginator.count, 1)
+        self.assertContains(resp_b, 'User B Hub')
+        self.assertNotContains(resp_b, 'User A Tower')
+        self.assertNotContains(resp_b, 'User A Plaza')

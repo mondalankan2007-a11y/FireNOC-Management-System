@@ -10,6 +10,8 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.shortcuts import render, redirect
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import Application
@@ -543,3 +545,70 @@ def logout_view(request):
     logout(request)
     messages.success(request, "You have been successfully logged out.")
     return redirect('login')
+
+
+@login_required(login_url='login')
+def my_applications(request):
+    """
+    My Applications listing page.
+    Displays a paginated, filterable list of all Fire NOC applications
+    submitted by the currently authenticated applicant.
+
+    Security:
+    - Protected by @login_required; unauthenticated requests are redirected to /login/.
+    - All queries are strictly filtered using applicant=request.user (never from GET params).
+    - Applicants can only see their own records.
+
+    Filtering (GET parameters):
+    - q        : search by application_id or building_name (case-insensitive)
+    - status   : filter by exact application status choice
+    - sort     : 'newest' (default) or 'oldest'
+    - page     : pagination page number
+
+    Pagination: 10 records per page; query params preserved in links.
+    """
+    # --- Base queryset: strictly scoped to logged-in applicant ---
+    qs = Application.objects.filter(applicant=request.user)
+
+    # --- Search ---
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(application_id__icontains=q) | Q(building_name__icontains=q)
+        )
+
+    # --- Status filter (validate against known choices to prevent injection) ---
+    valid_statuses = [choice[0] for choice in Application.STATUS_CHOICES]
+    current_status = request.GET.get('status', '').strip()
+    if current_status and current_status in valid_statuses:
+        qs = qs.filter(status=current_status)
+    else:
+        current_status = ''
+
+    # --- Sorting ---
+    current_sort = request.GET.get('sort', 'newest').strip()
+    if current_sort == 'oldest':
+        qs = qs.order_by('created_at')
+    else:
+        current_sort = 'newest'
+        qs = qs.order_by('-created_at')
+
+    # --- Pagination ---
+    paginator = Paginator(qs, 10)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    # Build a query string without 'page' to append page numbers in template
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    filter_query_string = query_params.urlencode()
+
+    context = {
+        'page_obj': page_obj,
+        'applications': page_obj.object_list,
+        'status_choices': Application.STATUS_CHOICES,
+        'q': q,
+        'current_status': current_status,
+        'current_sort': current_sort,
+        'filter_query_string': filter_query_string,
+    }
+    return render(request, 'applicants/my_applications.html', context)
