@@ -37,7 +37,7 @@
                         <a class="nav-link active" href="{% url 'officers:inspection_list' %}"><i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections
                             <span class="badge bg-warning text-dark ms-auto small">{{ total_count }}</span>
                         </a>
-                        <a class="nav-link" href="#deficiencies"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies</a>
+                        <a class="nav-link" href="{% url 'officers:deficiency_list' %}"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies</a>
                         <hr class="my-2 border-secondary-subtle">
                         <form method="post" action="{% url 'officers:logout' %}" class="m-0 p-0">
                             {% csrf_token %}

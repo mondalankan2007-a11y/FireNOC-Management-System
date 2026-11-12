@@ -1107,3 +1107,435 @@ class OfficerInspectionManagementTests(TestCase):
         self.assertEqual(resp_dash.context['stats']['scheduled_inspections'], 1)
         self.assertEqual(resp_dash.context['stats']['completed_inspections'], 1)
         self.assertContains(resp_dash, 'Upcoming Inspections')
+
+
+# ===========================================================================
+# Commit 5 Tests: Deficiency, Rectification & Officer Recommendation Workflow
+# ===========================================================================
+from officers.models import Deficiency, DeficiencyRectification, get_recommendation_eligibility
+
+
+class OfficerDeficiencyAndRecommendationTests(TestCase):
+    """
+    Comprehensive test suite for Commit 5 of the Fire Officer Module:
+    - Deficiency & DeficiencyRectification models
+    - Officer authentication & access control
+    - Deficiency creation from completed Unsatisfactory/Requires Rectification inspections
+    - Deficiency list, filters (status, severity), and search
+    - Deficiency state transitions & invalid transition blocking
+    - Rectification submission, evidence upload validation, acceptance & rejection
+    - Closing verified deficiencies & read-only enforcement
+    - Officer application recommendation & centralized eligibility checks
+    - Dashboard deficiency & recommendation statistics
+    """
+
+    def setUp(self):
+        self.officer_login_url = reverse('officers:login')
+        self.officer_home_url = reverse('officers:officer_home')
+        self.deficiency_list_url = reverse('officers:deficiency_list')
+
+        self.officer_password = 'FireOfficer#2026Commit5'
+        self.officer_user, self.officer_profile = create_officer_user(
+            username='officer_commit5',
+            email='commit5@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-C5-001',
+            first_name='Suresh',
+            last_name='Menon',
+            designation='Deputy Fire Officer',
+        )
+
+        self.other_officer_user, _ = create_officer_user(
+            username='officer_other5',
+            email='other5@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-C5-002',
+            first_name='Kavita',
+            last_name='Rao',
+        )
+
+        self.applicant_password = 'ApplicantPass#Commit5'
+        self.applicant_user = User.objects.create_user(
+            username='applicant_c5',
+            email='applicant5@example.com',
+            password=self.applicant_password,
+            first_name='Deepak',
+            last_name='Verma',
+        )
+
+        self.application = Application.objects.create(
+            applicant=self.applicant_user,
+            full_name='Deepak Verma',
+            email='applicant5@example.com',
+            mobile_number='9876500005',
+            building_name='Apex Business Park',
+            building_type='COMMERCIAL',
+            building_address='77 Cyber Hub',
+            city='Gurugram',
+            state='Haryana',
+            pin_code='122002',
+            num_floors=7,
+            builtup_area='4500.00',
+            year_construction=2019,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Commercial Fire NOC.',
+            status='UNDER_INSPECTION',
+        )
+
+        fake_doc = SimpleUploadedFile(
+            name='safety_plan.pdf',
+            content=b'%PDF-1.4 sample',
+            content_type='application/pdf',
+        )
+        self.document = ApplicationDocument.objects.create(
+            application=self.application,
+            document_type='FIRE_SAFETY_PLAN',
+            document_name='Fire Safety Plan',
+            file=fake_doc,
+        )
+        self.doc_verification = DocumentVerification.objects.create(
+            document=self.document,
+            verified_by=self.officer_user,
+            status='VERIFIED',
+            verified_at=timezone.now(),
+        )
+        self.app_review = ApplicationReview.objects.create(
+            application=self.application,
+            reviewed_by=self.officer_user,
+            status='DOCUMENTS_VERIFIED',
+        )
+
+        self.bad_inspection = Inspection.objects.create(
+            application=self.application,
+            officer=self.officer_user,
+            scheduled_date=timezone.localdate(),
+            scheduled_time=datetime.time(10, 0),
+            location='77 Cyber Hub',
+            status=Inspection.STATUS_COMPLETED,
+            completed_at=timezone.now(),
+        )
+        self.bad_report = InspectionReport.objects.create(
+            inspection=self.bad_inspection,
+            overall_result=InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+            general_observations='Extinguishers missing on 4th floor.',
+            completed_at=timezone.now(),
+        )
+
+    def _create_deficiency(self, title='Missing Extinguishers', severity=Deficiency.SEVERITY_MAJOR, status=Deficiency.STATUS_OPEN):
+        return Deficiency.objects.create(
+            application=self.application,
+            inspection=self.bad_inspection,
+            reported_by=self.officer_user,
+            title=title,
+            description='Install ABC extinguishers near staircase.',
+            severity=severity,
+            status=status,
+        )
+
+    # =========================================================================
+    # Model Tests
+    # =========================================================================
+
+    def test_deficiency_model_creation_choices_and_relationships(self):
+        """Model: Deficiency creates with severity/status choices and FKs."""
+        d = self._create_deficiency(severity=Deficiency.SEVERITY_CRITICAL)
+        self.assertEqual(d.application, self.application)
+        self.assertEqual(d.inspection, self.bad_inspection)
+        self.assertEqual(d.reported_by, self.officer_user)
+        self.assertEqual(d.get_severity_display(), 'Critical')
+        self.assertEqual(d.get_status_display(), 'Open')
+        self.assertEqual(
+            set(dict(Deficiency.SEVERITY_CHOICES).values()),
+            {'Minor', 'Major', 'Critical'},
+        )
+        self.assertEqual(
+            set(dict(Deficiency.STATUS_CHOICES).values()),
+            {'Open', 'Submitted for Verification', 'Verified', 'Rejected', 'Closed'},
+        )
+
+    # =========================================================================
+    # Authentication & Access Control
+    # =========================================================================
+
+    def test_unauthenticated_and_non_officer_blocked_from_deficiencies(self):
+        """Auth: Unauthenticated users and applicants cannot access deficiency routes."""
+        d = self._create_deficiency()
+        for url in [
+            self.deficiency_list_url,
+            reverse('officers:deficiency_detail', args=[d.pk]),
+            reverse('officers:deficiency_create', args=[self.bad_inspection.pk]),
+        ]:
+            resp = self.client.get(url)
+            self.assertRedirects(resp, f"{self.officer_login_url}?next={url}")
+
+        self.client.login(username='applicant_c5', password=self.applicant_password)
+        self.assertRedirects(self.client.get(self.deficiency_list_url), self.officer_login_url)
+        self.assertRedirects(
+            self.client.post(reverse('officers:deficiency_close', args=[d.pk])),
+            self.officer_login_url,
+        )
+
+    # =========================================================================
+    # Deficiency Creation
+    # =========================================================================
+
+    def test_officer_can_create_deficiency_and_reported_by_is_automatic(self):
+        """Creation: Officer logs deficiency for completed Unsatisfactory/Rectification inspection."""
+        self.client.login(username='officer_commit5', password=self.officer_password)
+        url = reverse('officers:deficiency_create', args=[self.bad_inspection.pk])
+        resp = self.client.post(url, {
+            'title': 'Blocked Fire Exit',
+            'description': 'Clear storage boxes from 2nd floor exit.',
+            'severity': Deficiency.SEVERITY_CRITICAL,
+            'officer_remarks': 'Urgent',
+            'reported_by': self.other_officer_user.pk,  # spoof attempt ignored
+        })
+        d = Deficiency.objects.get(title='Blocked Fire Exit')
+        self.assertRedirects(resp, reverse('officers:deficiency_detail', args=[d.pk]))
+        self.assertEqual(d.reported_by, self.officer_user)
+        self.assertEqual(d.application, self.application)
+        self.assertEqual(d.inspection, self.bad_inspection)
+        self.assertEqual(d.status, Deficiency.STATUS_OPEN)
+
+    def test_cannot_create_deficiency_for_satisfactory_or_incomplete_inspection(self):
+        """Creation: Blocked for Satisfactory or Scheduled inspections; required fields validated."""
+        self.client.login(username='officer_commit5', password=self.officer_password)
+
+        # Satisfactory inspection
+        sat_insp = Inspection.objects.create(
+            application=self.application,
+            officer=self.officer_user,
+            scheduled_date=timezone.localdate(),
+            scheduled_time=datetime.time(14, 0),
+            status=Inspection.STATUS_COMPLETED,
+        )
+        InspectionReport.objects.create(
+            inspection=sat_insp,
+            overall_result=InspectionReport.RESULT_SATISFACTORY,
+            general_observations='All good.',
+        )
+        resp_sat = self.client.post(reverse('officers:deficiency_create', args=[sat_insp.pk]), {
+            'title': 'Fake Deficiency',
+            'description': 'Should be blocked.',
+            'severity': Deficiency.SEVERITY_MINOR,
+        })
+        self.assertRedirects(resp_sat, reverse('officers:inspection_detail', args=[sat_insp.pk]))
+        self.assertEqual(Deficiency.objects.filter(inspection=sat_insp).count(), 0)
+
+        # Missing required fields on valid inspection
+        resp_empty = self.client.post(reverse('officers:deficiency_create', args=[self.bad_inspection.pk]), {
+            'title': '',
+            'description': '',
+            'severity': Deficiency.SEVERITY_MAJOR,
+        })
+        self.assertEqual(resp_empty.status_code, 200)
+        self.assertContains(resp_empty, 'Deficiency title is required')
+        self.assertEqual(Deficiency.objects.count(), 0)
+
+    # =========================================================================
+    # Deficiency List, Filters & Search
+    # =========================================================================
+
+    def test_deficiency_list_filters_and_search(self):
+        """Listing: List loads and filters by status, severity, and search query."""
+        self.client.login(username='officer_commit5', password=self.officer_password)
+        self._create_deficiency(title='Alarm Fault', severity=Deficiency.SEVERITY_CRITICAL, status=Deficiency.STATUS_OPEN)
+        self._create_deficiency(title='Signage Missing', severity=Deficiency.SEVERITY_MINOR, status=Deficiency.STATUS_CLOSED)
+
+        resp_all = self.client.get(self.deficiency_list_url)
+        self.assertEqual(resp_all.status_code, 200)
+        self.assertContains(resp_all, 'Alarm Fault')
+        self.assertContains(resp_all, 'Signage Missing')
+
+        resp_status = self.client.get(f"{self.deficiency_list_url}?status=OPEN")
+        self.assertContains(resp_status, 'Alarm Fault')
+        self.assertNotContains(resp_status, 'Signage Missing')
+
+        resp_sev = self.client.get(f"{self.deficiency_list_url}?severity=MINOR")
+        self.assertContains(resp_sev, 'Signage Missing')
+        self.assertNotContains(resp_sev, 'Alarm Fault')
+
+        resp_q = self.client.get(f"{self.deficiency_list_url}?q=Alarm")
+        self.assertContains(resp_q, 'Alarm Fault')
+        self.assertNotContains(resp_q, 'Signage Missing')
+
+    # =========================================================================
+    # State Transitions & Rectification Workflow
+    # =========================================================================
+
+    def test_rectification_accept_and_close_workflow(self):
+        """Workflow: Open -> Submitted -> Verified -> Closed, with evidence upload."""
+        self.client.login(username='officer_commit5', password=self.officer_password)
+        d = self._create_deficiency()
+
+        # Cannot close before verification
+        self.client.post(reverse('officers:deficiency_close', args=[d.pk]))
+        d.refresh_from_db()
+        self.assertEqual(d.status, Deficiency.STATUS_OPEN)
+
+        # Submit rectification with evidence
+        evidence = SimpleUploadedFile('photo.jpg', b'fakejpgdata', content_type='image/jpeg')
+        self.client.post(reverse('officers:deficiency_rectify', args=[d.pk]), {
+            'description': 'Extinguishers installed on 4th floor.',
+            'evidence_file': evidence,
+        })
+        d.refresh_from_db()
+        self.assertEqual(d.status, Deficiency.STATUS_SUBMITTED)
+        rect = d.rectifications.first()
+        self.assertIsNotNone(rect)
+        self.assertTrue(bool(rect.evidence_file))
+
+        # Accept rectification -> Verified
+        self.client.post(reverse('officers:rectification_review', args=[d.pk, rect.pk]), {
+            'action': 'ACCEPT',
+            'review_remarks': 'Verified on photo evidence.',
+        })
+        d.refresh_from_db()
+        rect.refresh_from_db()
+        self.assertEqual(d.status, Deficiency.STATUS_VERIFIED)
+        self.assertEqual(rect.status, DeficiencyRectification.STATUS_ACCEPTED)
+        self.assertEqual(rect.reviewed_by, self.officer_user)
+
+        # Close deficiency -> Closed
+        self.client.post(reverse('officers:deficiency_close', args=[d.pk]))
+        d.refresh_from_db()
+        self.assertEqual(d.status, Deficiency.STATUS_CLOSED)
+        self.assertIsNotNone(d.resolved_at)
+        self.assertEqual(d.closed_by, self.officer_user)
+
+        # Closed deficiency is read-only (cannot submit rectification)
+        self.client.post(reverse('officers:deficiency_rectify', args=[d.pk]), {
+            'description': 'Tamper closed deficiency.',
+        })
+        d.refresh_from_db()
+        self.assertEqual(d.status, Deficiency.STATUS_CLOSED)
+
+    def test_rectification_reject_reopens_deficiency_and_allows_resubmission(self):
+        """Workflow: Submitted -> Rejected -> Open, allowing another rectification."""
+        self.client.login(username='officer_commit5', password=self.officer_password)
+        d = self._create_deficiency()
+
+        self.client.post(reverse('officers:deficiency_rectify', args=[d.pk]), {
+            'description': 'Initial attempt.',
+        })
+        rect1 = d.rectifications.first()
+
+        # Reject rectification
+        self.client.post(reverse('officers:rectification_review', args=[d.pk, rect1.pk]), {
+            'action': 'REJECT',
+            'review_remarks': 'Pressure gauge unreadable.',
+        })
+        d.refresh_from_db()
+        rect1.refresh_from_db()
+        self.assertEqual(rect1.status, DeficiencyRectification.STATUS_REJECTED)
+        self.assertEqual(d.status, Deficiency.STATUS_OPEN)
+
+        # Resubmit another rectification
+        self.client.post(reverse('officers:deficiency_rectify', args=[d.pk]), {
+            'description': 'Clear photo uploaded with certified gauge.',
+        })
+        d.refresh_from_db()
+        self.assertEqual(d.status, Deficiency.STATUS_SUBMITTED)
+        self.assertEqual(d.rectifications.count(), 2)
+
+    def test_invalid_deficiency_transitions_blocked(self):
+        """State machine: Invalid transitions (Verified->Open, Closed->Open, Rejected->Verified) blocked."""
+        d_ver = self._create_deficiency(status=Deficiency.STATUS_VERIFIED)
+        self.assertFalse(d_ver.can_transition_to(Deficiency.STATUS_OPEN))
+        self.assertFalse(d_ver.can_transition_to(Deficiency.STATUS_REJECTED))
+
+        d_closed = self._create_deficiency(status=Deficiency.STATUS_CLOSED)
+        self.assertFalse(d_closed.can_transition_to(Deficiency.STATUS_OPEN))
+        self.assertFalse(d_closed.can_transition_to(Deficiency.STATUS_VERIFIED))
+
+        d_rej = self._create_deficiency(status=Deficiency.STATUS_REJECTED)
+        self.assertFalse(d_rej.can_transition_to(Deficiency.STATUS_VERIFIED))
+        self.assertTrue(d_rej.can_transition_to(Deficiency.STATUS_OPEN))
+
+    # =========================================================================
+    # Application Eligibility & Officer Recommendation
+    # =========================================================================
+
+    def test_recommendation_blocked_until_all_prerequisites_met(self):
+        """Eligibility: Blocked by incomplete docs, incomplete/bad inspection, or open deficiencies."""
+        self.client.login(username='officer_commit5', password=self.officer_password)
+        rec_url = reverse('officers:application_recommend', args=[self.application.pk])
+
+        # 1. Currently bad_inspection has Requires Rectification -> blocked
+        self.assertFalse(get_recommendation_eligibility(self.application)['is_eligible'])
+        self.client.post(rec_url, {'recommendation': ApplicationReview.RECOMMENDATION_APPROVED})
+        self.app_review.refresh_from_db()
+        self.assertEqual(self.app_review.recommendation, ApplicationReview.RECOMMENDATION_PENDING)
+
+        # 2. Add satisfactory re-inspection, but leave an open deficiency -> still blocked
+        sat_insp = Inspection.objects.create(
+            application=self.application,
+            officer=self.officer_user,
+            scheduled_date=timezone.localdate(),
+            scheduled_time=datetime.time(15, 0),
+            status=Inspection.STATUS_COMPLETED,
+            completed_at=timezone.now(),
+        )
+        InspectionReport.objects.create(
+            inspection=sat_insp,
+            overall_result=InspectionReport.RESULT_SATISFACTORY,
+            general_observations='Re-inspection passed.',
+        )
+        d = self._create_deficiency(status=Deficiency.STATUS_OPEN)
+        self.assertFalse(get_recommendation_eligibility(self.application)['is_eligible'])
+
+        # 3. Close deficiency, but reject a document -> still blocked
+        d.status = Deficiency.STATUS_CLOSED
+        d.save()
+        self.doc_verification.status = 'REJECTED'
+        self.doc_verification.save()
+        self.assertFalse(get_recommendation_eligibility(self.application)['is_eligible'])
+
+        # 4. Re-verify document -> now ALL prerequisites met -> Eligible!
+        self.doc_verification.status = 'VERIFIED'
+        self.doc_verification.save()
+        self.assertTrue(get_recommendation_eligibility(self.application)['is_eligible'])
+
+        self.client.post(rec_url, {
+            'recommendation': ApplicationReview.RECOMMENDATION_APPROVED,
+            'recommendation_remarks': 'All safety requirements fulfilled.',
+        })
+        self.app_review.refresh_from_db()
+        self.assertEqual(self.app_review.recommendation, ApplicationReview.RECOMMENDATION_APPROVED)
+        self.assertEqual(self.app_review.recommended_by, self.officer_user)
+
+    # =========================================================================
+    # Dashboard Stats Integration
+    # =========================================================================
+
+    def test_dashboard_deficiency_and_recommendation_statistics(self):
+        """Dashboard: Open deficiencies, pending rectifications, and ready-for-recommendation counts match DB."""
+        self.client.login(username='officer_commit5', password=self.officer_password)
+
+        d_open = self._create_deficiency(title='Open Issue', status=Deficiency.STATUS_OPEN)
+        d_sub = self._create_deficiency(title='Sub Issue', status=Deficiency.STATUS_SUBMITTED)
+        DeficiencyRectification.objects.create(
+            deficiency=d_sub,
+            submitted_by=self.applicant_user,
+            description='Fixed',
+            status=DeficiencyRectification.STATUS_SUBMITTED,
+        )
+
+        resp = self.client.get(self.officer_home_url)
+        self.assertEqual(resp.status_code, 200)
+        stats = resp.context['stats']
+        self.assertEqual(stats['open_deficiencies'], 1)
+        self.assertEqual(stats['pending_rectification_verification'], 1)
+        self.assertEqual(stats['applications_ready_for_recommendation'], 0)
+
+        # Now resolve deficiencies and make inspection satisfactory -> ready count becomes 1
+        d_open.status = Deficiency.STATUS_CLOSED
+        d_open.save()
+        d_sub.status = Deficiency.STATUS_CLOSED
+        d_sub.save()
+        self.bad_report.overall_result = InspectionReport.RESULT_SATISFACTORY
+        self.bad_report.save()
+
+        resp2 = self.client.get(self.officer_home_url)
+        self.assertEqual(resp2.context['stats']['applications_ready_for_recommendation'], 1)

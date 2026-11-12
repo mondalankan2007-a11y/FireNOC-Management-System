@@ -37,7 +37,7 @@
                         <a class="nav-link active" href="{% url 'officers:application_list' %}"><i class="bi bi-file-earmark-text me-2 text-primary"></i>Applications</a>
                         <a class="nav-link" href="{% url 'officers:application_list' %}"><i class="bi bi-file-earmark-check me-2 text-info"></i>Document Verification</a>
                         <a class="nav-link" href="{% url 'officers:inspection_list' %}"><i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections</a>
-                        <a class="nav-link" href="#deficiencies"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies</a>
+                        <a class="nav-link" href="{% url 'officers:deficiency_list' %}"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies</a>
                         <hr class="my-2 border-secondary-subtle">
                         <form method="post" action="{% url 'officers:logout' %}" class="m-0 p-0">
                             {% csrf_token %}

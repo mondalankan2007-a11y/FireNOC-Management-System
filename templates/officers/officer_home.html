@@ -59,8 +59,8 @@
                             <i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections
                         </a>
 
-                        <!-- 5. Deficiencies (Placeholder for future commit) -->
-                        <a class="nav-link" href="#deficiencies" data-bs-toggle="tooltip" title="Deficiency Logging & Rectification (Commit 6)">
+                        <!-- 5. Deficiencies (Functional - Commit 5) -->
+                        <a class="nav-link" href="{% url 'officers:deficiency_list' %}">
                             <i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies
                         </a>
 
@@ -200,6 +200,70 @@
                             </div>
                             <div class="dashboard-stat-icon bg-success-subtle text-success">
                                 <i class="bi bi-check2-circle"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 6: Open Deficiencies -->
+                <div class="col-xl-3 col-sm-6">
+                    <div class="dashboard-stat-card stat-amber h-100" style="border-left-color: #ef4444;">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Open Deficiencies</small>
+                                <div class="dashboard-stat-number text-danger">{{ stats.open_deficiencies }}</div>
+                                <small class="text-muted">Awaiting rectification</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-danger-subtle text-danger">
+                                <i class="bi bi-exclamation-triangle"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 7: Pending Rectification Verification -->
+                <div class="col-xl-3 col-sm-6">
+                    <div class="dashboard-stat-card stat-navy h-100" style="border-left-color: #3b82f6;">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Pending Verification</small>
+                                <div class="dashboard-stat-number text-primary">{{ stats.pending_rectification_verification }}</div>
+                                <small class="text-muted">Rectifications submitted</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-primary-subtle text-primary">
+                                <i class="bi bi-tools"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 8: Verified Deficiencies -->
+                <div class="col-xl-3 col-sm-6">
+                    <div class="dashboard-stat-card stat-green h-100" style="border-left-color: #06b6d4;">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Verified Deficiencies</small>
+                                <div class="dashboard-stat-number text-info">{{ stats.verified_deficiencies }}</div>
+                                <small class="text-muted">Ready for closure</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-info-subtle text-info">
+                                <i class="bi bi-patch-check"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Card 9: Ready for Recommendation -->
+                <div class="col-xl-3 col-sm-6">
+                    <div class="dashboard-stat-card stat-green h-100">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted fw-semibold text-uppercase d-block mb-1">Ready for Recommendation</small>
+                                <div class="dashboard-stat-number text-success">{{ stats.applications_ready_for_recommendation }}</div>
+                                <small class="text-muted">Prerequisites met</small>
+                            </div>
+                            <div class="dashboard-stat-icon bg-success-subtle text-success">
+                                <i class="bi bi-award"></i>
                             </div>
                         </div>
                     </div>

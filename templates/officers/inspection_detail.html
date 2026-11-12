@@ -36,7 +36,7 @@
                         <a class="nav-link" href="{% url 'officers:application_list' %}"><i class="bi bi-file-earmark-text me-2 text-primary"></i>Applications</a>
                         <a class="nav-link" href="{% url 'officers:application_list' %}"><i class="bi bi-file-earmark-check me-2 text-info"></i>Document Verification</a>
                         <a class="nav-link active" href="{% url 'officers:inspection_list' %}"><i class="bi bi-clipboard2-check me-2 text-warning"></i>Inspections</a>
-                        <a class="nav-link" href="#deficiencies"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies</a>
+                        <a class="nav-link" href="{% url 'officers:deficiency_list' %}"><i class="bi bi-exclamation-triangle me-2 text-danger"></i>Deficiencies</a>
                         <hr class="my-2 border-secondary-subtle">
                         <form method="post" action="{% url 'officers:logout' %}" class="m-0 p-0">
                             {% csrf_token %}
@@ -350,6 +350,88 @@
                         </div>
                         {% endif %}
                     </div>
+                </div>
+            </div>
+
+            <!-- === Section 4b: Inspection Deficiencies === -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom py-3 d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-danger-subtle text-danger d-flex align-items-center justify-content-center me-3" style="width:36px;height:36px;">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                        </div>
+                        <h5 class="fw-bold mb-0 text-dark">Deficiencies &amp; Rectification Requirements</h5>
+                    </div>
+                    {% if can_create_deficiency %}
+                        <a href="{% url 'officers:deficiency_create' inspection.pk %}" class="btn btn-sm btn-danger fw-bold">
+                            <i class="bi bi-plus-lg me-1"></i>Create Deficiency
+                        </a>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    {% if report.overall_result == 'SATISFACTORY' %}
+                        <div class="alert alert-success d-flex align-items-center mb-0" role="alert">
+                            <i class="bi bi-check-circle-fill me-2 fs-5"></i>
+                            <div><strong>Inspection Satisfactory:</strong> No fire safety deficiencies were identified. No applicant rectification is required.</div>
+                        </div>
+                    {% else %}
+                        {% if deficiencies %}
+                            <div class="table-responsive">
+                                <table class="table table-hover align-middle mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th scope="col" class="ps-3">ID</th>
+                                            <th scope="col">Title</th>
+                                            <th scope="col">Severity</th>
+                                            <th scope="col">Status</th>
+                                            <th scope="col">Created</th>
+                                            <th scope="col" class="text-end pe-3">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for d in deficiencies %}
+                                        <tr>
+                                            <td class="ps-3 fw-bold font-monospace text-dark">DEF-{{ d.pk }}</td>
+                                            <td class="fw-semibold">{{ d.title }}</td>
+                                            <td>
+                                                {% if d.severity == 'CRITICAL' %}
+                                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Critical</span>
+                                                {% elif d.severity == 'MAJOR' %}
+                                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Major</span>
+                                                {% else %}
+                                                    <span class="badge bg-info-subtle text-info border border-info-subtle">Minor</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <span class="badge {% if d.status == 'CLOSED' %}bg-success-subtle text-success{% elif d.status == 'VERIFIED' %}bg-info-subtle text-info{% elif d.status == 'OPEN' %}bg-danger-subtle text-danger{% else %}bg-primary-subtle text-primary{% endif %} border">
+                                                    {{ d.get_status_display }}
+                                                </span>
+                                            </td>
+                                            <td><small class="text-muted">{{ d.created_at|date:"d M Y" }}</small></td>
+                                            <td class="text-end pe-3">
+                                                <a href="{% url 'officers:deficiency_detail' d.pk %}" class="btn btn-sm btn-outline-danger fw-semibold">
+                                                    View Deficiency
+                                                </a>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                <div class="text-muted small">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    The report requires rectification, but no specific deficiency has been logged yet.
+                                </div>
+                                {% if can_create_deficiency %}
+                                    <a href="{% url 'officers:deficiency_create' inspection.pk %}" class="btn btn-sm btn-danger fw-bold">
+                                        <i class="bi bi-plus-lg me-1"></i>Create Deficiency
+                                    </a>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    {% endif %}
                 </div>
             </div>
             {% endif %}
