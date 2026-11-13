@@ -1429,4 +1429,148 @@ class DocumentUploadInterfaceViewTests(TestCase):
         details_url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
         self.assertContains(response, f'href="{details_url}"')
 
+    # -------------------------------------------------------------
+    # Commit 16 Backend Upload Tests
+    # -------------------------------------------------------------
+
+    def test_valid_pdf_upload(self):
+        """Valid PDF file upload saves ApplicationDocument record in PostgreSQL and storage."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        pdf_content = b"%PDF-1.4 sample pdf content for blueprint verification"
+        pdf_file = SimpleUploadedFile("building_blueprint.pdf", pdf_content, content_type="application/pdf")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': pdf_file,
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, reverse('applicants:application_details', kwargs={'application_id': self.app_a.id}))
+        self.assertContains(response, "Successfully uploaded 1 document")
+
+        # Verify database record
+        doc = ApplicationDocument.objects.filter(application=self.app_a).first()
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc.document_type, 'ARCHITECTURAL_BLUEPRINT')
+        self.assertIn('Building Plan', doc.document_name)
+        self.assertTrue(doc.file.name.endswith('.pdf'))
+
+    def test_valid_image_upload(self):
+        """Valid PNG and JPEG image files upload successfully."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        png_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRsample png content"
+        png_file = SimpleUploadedFile("address_proof.png", png_content, content_type="image/png")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_ADDRESS_PROOF': png_file,
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Successfully uploaded 1 document")
+
+        doc = ApplicationDocument.objects.filter(application=self.app_a, document_name__startswith='Building Address Proof').first()
+        self.assertIsNotNone(doc)
+        self.assertTrue(doc.file.name.endswith('.png'))
+
+    def test_unsupported_file_type_rejected(self):
+        """Executable or non-permitted file extensions (e.g. .exe, .sh, .txt) are rejected."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        bad_file = SimpleUploadedFile("dangerous_script.exe", b"MZ\x90\x00executable binary code", content_type="application/x-dosexec")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': bad_file,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Invalid file format")
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_a).count(), 0)
+
+    def test_file_exceeding_size_limit_rejected(self):
+        """Files exceeding 5 MB are rejected with an informative error message."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        # Create oversized file (5.5 MB)
+        oversized_content = b"%PDF-1.4 " + (b"A" * (5 * 1024 * 1024 + 500 * 1024))
+        oversized_file = SimpleUploadedFile("huge_blueprint.pdf", oversized_content, content_type="application/pdf")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': oversized_file,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "exceeds the maximum allowed size of 5 MB")
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_a).count(), 0)
+
+    def test_applicant_attempting_to_upload_to_another_applicant_application(self):
+        """Applicant attempting to POST documents to another applicant's application returns 404."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_b.id})
+
+        pdf_file = SimpleUploadedFile("hack.pdf", b"%PDF-1.4 test", content_type="application/pdf")
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': pdf_file,
+        })
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_b).count(), 0)
+
+    def test_unauthenticated_user_post_upload_redirects_to_login(self):
+        """Unauthenticated POST request does not save documents and redirects to login."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        pdf_file = SimpleUploadedFile("test.pdf", b"%PDF-1.4 test", content_type="application/pdf")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': pdf_file,
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={url}")
+        self.assertEqual(ApplicationDocument.objects.count(), 0)
+
+    def test_reuploading_replaces_existing_category_document(self):
+        """Uploading a document for an already uploaded category updates the existing record."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        # Initial upload
+        file1 = SimpleUploadedFile("initial.pdf", b"%PDF-1.4 v1", content_type="application/pdf")
+        self.client.post(url, {'doc_BUILDING_PLAN': file1}, follow=True)
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_a).count(), 1)
+
+        # Replacement upload
+        file2 = SimpleUploadedFile("updated.pdf", b"%PDF-1.4 v2", content_type="application/pdf")
+        self.client.post(url, {'doc_BUILDING_PLAN': file2}, follow=True)
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_a).count(), 1)
+
+        doc = ApplicationDocument.objects.filter(application=self.app_a).first()
+        self.assertIn("updated", doc.file.name)
+
+
 
