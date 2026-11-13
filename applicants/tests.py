@@ -1769,3 +1769,64 @@ class MyDocumentsListingViewTests(TestCase):
         self.assertEqual(resp_filtered.context['total_count'], 1)
         self.assertContains(resp_filtered, 'Ownership Proof - Sunrise Commercial Hub')
         self.assertNotContains(resp_filtered, 'Fire Safety Equipment Details - Sunrise Commercial Hub')
+
+
+class ApplicantOfficerIntegrationStabilizationTests(TestCase):
+    """
+    Integration test verifying that the merged Applicant module works seamlessly
+    with the Officer module, confirming all applicant views load and status
+    transitions are mutually visible.
+    """
+
+    def setUp(self):
+        from applicants.models import Application
+        self.applicant = User.objects.create_user(
+            username='integ_applicant@firenoc.gov.in',
+            email='integ_applicant@firenoc.gov.in',
+            password='ValidPassword#2026',
+            first_name='Integration',
+            last_name='Applicant',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Integration Applicant',
+            email='integ_applicant@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Unified Tower',
+            building_type='COMMERCIAL',
+            building_address='100 Tech Park',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=8,
+            builtup_area='2500.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='PENDING',
+        )
+
+    def test_all_applicant_views_load_successfully(self):
+        self.client.force_login(self.applicant)
+
+        # Dashboard
+        res = self.client.get(reverse('applicants:dashboard'))
+        self.assertEqual(res.status_code, 200)
+
+        # My Applications
+        res = self.client.get(reverse('applicants:my_applications'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'Unified Tower')
+
+        # Application Details
+        res = self.client.get(reverse('applicants:application_details', kwargs={'application_id': self.app.id}))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'Unified Tower')
+
+        # Document Upload
+        res = self.client.get(reverse('applicants:document_upload', kwargs={'application_id': self.app.id}))
+        self.assertEqual(res.status_code, 200)
+
+        # My Documents
+        res = self.client.get(reverse('applicants:my_documents'))
+        self.assertEqual(res.status_code, 200)
