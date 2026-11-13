@@ -186,6 +186,70 @@
                 </div>
             </div>
 
+            {% if application.status == 'APPROVED' %}
+                <div class="card border-0 shadow-sm mb-4 bg-success-subtle border-start border-success border-4">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-patch-check-fill text-success fs-2 me-3"></i>
+                            <div>
+                                <h5 class="fw-bold text-success mb-1">Fire NOC Certificate Approved & Issued</h5>
+                                <p class="text-success-emphasis mb-0 small">
+                                    Official Fire Safety Clearance has been granted for <strong>{{ application.building_name }}</strong> under Reference ID <strong>{{ application.application_id }}</strong>. All fire safety and evacuation prerequisites have been validated in full compliance with municipal fire safety standards.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% elif application.status == 'REJECTED' %}
+                <div class="card border-0 shadow-sm mb-4 bg-danger-subtle border-start border-danger border-4">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-start">
+                            <i class="bi bi-x-octagon-fill text-danger fs-2 me-3 mt-1"></i>
+                            <div>
+                                <h5 class="fw-bold text-danger mb-1">Application Rejected</h5>
+                                <p class="text-danger-emphasis mb-2 small">
+                                    This Fire NOC application was reviewed and rejected by the fire department authority.
+                                </p>
+                                {% if application.remarks %}
+                                    <div class="p-2 bg-white rounded border border-danger-subtle small font-monospace text-dark">
+                                        <strong>Department Remarks / Rejection Reason:</strong><br>
+                                        {{ application.remarks|linebreaksbr }}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% elif application.officer_review and application.officer_review.recommendation == 'RECOMMENDED_FOR_APPROVAL' %}
+                <div class="card border-0 shadow-sm mb-4 bg-info-subtle border-start border-info border-4">
+                    <div class="card-body p-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-shield-check text-info fs-3 me-3"></i>
+                            <div>
+                                <h6 class="fw-bold text-info-emphasis mb-1">Officer Recommendation: Recommended for Approval</h6>
+                                <p class="text-muted mb-0 small">
+                                    The inspecting fire officer has completed document audits and physical inspections with satisfactory findings. Your application is currently under final administrative authorization for NOC issuance.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% elif application.status == 'DEFICIENT' %}
+                <div class="card border-0 shadow-sm mb-4 bg-warning-subtle border-start border-warning border-4">
+                    <div class="card-body p-3">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-exclamation-triangle-fill text-warning-emphasis fs-3 me-3"></i>
+                            <div>
+                                <h6 class="fw-bold text-warning-emphasis mb-1">Deficiencies Require Rectification</h6>
+                                <p class="text-muted mb-0 small">
+                                    One or more fire safety deficiencies were identified during the site inspection. Please submit rectification evidence to resume the inspection clearance workflow.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+
             <!-- Section 1: Applicant Information -->
             <div class="card border-0 shadow-sm mb-4">
                 <div class="card-header bg-white py-3 border-bottom d-flex align-items-center">
