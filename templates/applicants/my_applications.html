@@ -281,11 +281,9 @@
                                                 {% endif %}
                                             </td>
                                             <td class="text-end pe-3">
-                                                {# View Details link – detail route to be implemented in the next commit #}
-                                                <a href="#application-{{ app.application_id }}"
+                                                <a href="{% url 'applicants:application_details' app.id %}"
                                                    class="btn btn-sm btn-outline-primary"
-                                                   title="View full application details"
-                                                   data-bs-toggle="tooltip">
+                                                   title="View full application details">
                                                     <i class="bi bi-eye me-1"></i>View Details
                                                 </a>
                                             </td>

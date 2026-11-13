@@ -1,0 +1,325 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Application Details - {{ application.application_id }} | FireNOC Management System{% endblock %}
+
+{% block extra_css %}
+<style>
+    @media print {
+        .no-print, .gov-topbar, .portal-navbar, footer, .dashboard-sidebar-card, aside {
+            display: none !important;
+        }
+        main, .container-fluid {
+            width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        .card {
+            border: 1px solid #dee2e6 !important;
+            box-shadow: none !important;
+            break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3 no-print">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:dashboard' %}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:my_applications' %}">My Applications</a></li>
+            <li class="breadcrumb-item active" aria-current="page">{{ application.application_id }}</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Sidebar Navigation (Desktop) -->
+        <aside class="col-lg-3 col-md-4 no-print">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <!-- User Profile Header -->
+                <div class="dashboard-user-profile text-center">
+                    <div class="dashboard-user-avatar mx-auto mb-2">
+                        <i class="bi bi-person-fill"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">
+                        {{ user.first_name|default:user.username }} {{ user.last_name|default:'' }}
+                    </h5>
+                    <small class="text-white-50 d-block text-truncate px-2">{{ user.email }}</small>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle mt-2 px-2 py-1 small">
+                        <i class="bi bi-patch-check-fill me-1"></i>Verified Applicant
+                    </span>
+                </div>
+
+                <!-- Navigation Links -->
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <a class="nav-link" href="{% url 'applicants:dashboard' %}">
+                            <i class="bi bi-grid-1x2-fill me-2"></i>Dashboard
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:application_new' %}">
+                            <i class="bi bi-file-earmark-plus me-2 text-primary"></i>New Application
+                        </a>
+                        <a class="nav-link active" href="{% url 'applicants:my_applications' %}">
+                            <i class="bi bi-folder2 me-2"></i>My Applications
+                        </a>
+                        <a class="nav-link" href="#documents" data-bs-toggle="tooltip" title="Uploaded fire safety documents">
+                            <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
+                        </a>
+                        <a class="nav-link" href="#inspection-details" data-bs-toggle="tooltip" title="Inspection reports and scheduled dates">
+                            <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
+                        </a>
+                        <a class="nav-link" href="#corrections" data-bs-toggle="tooltip" title="Outstanding deficiency rectification notices">
+                            <i class="bi bi-exclamation-triangle me-2"></i>Corrections
+                        </a>
+                        <a class="nav-link" href="#my-nocs" data-bs-toggle="tooltip" title="Issued digital Fire NOC Certificates">
+                            <i class="bi bi-award me-2"></i>My NOCs
+                        </a>
+                        <a class="nav-link" href="#profile" data-bs-toggle="tooltip" title="Manage personal and contact details">
+                            <i class="bi bi-person-gear me-2"></i>Profile
+                        </a>
+
+                        <hr class="my-2 border-secondary-subtle">
+
+                        <form method="post" action="{% url 'logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Helpdesk Box -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi bi-headset text-danger fs-4 me-2"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Applicant Helpdesk</h6>
+                </div>
+                <p class="small text-muted mb-2">Need assistance with this application?</p>
+                <div class="small fw-semibold text-dark mb-1">
+                    <i class="bi bi-telephone text-danger me-1"></i>Toll-Free: 1800-11-FIRE
+                </div>
+                <div class="small fw-semibold text-dark">
+                    <i class="bi bi-envelope text-danger me-1"></i>support-firenoc@gov.in
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="col-lg-9 col-md-8">
+            <!-- Header Banner -->
+            <div class="dashboard-welcome-banner shadow-sm mb-4">
+                <div class="row align-items-center">
+                    <div class="col-lg-7 mb-3 mb-lg-0">
+                        <span class="badge bg-danger mb-2 px-3 py-1 text-uppercase fw-semibold">
+                            <i class="bi bi-shield-shaded me-1"></i>Fire NOC Application Dossier
+                        </span>
+                        <h1 class="h3 fw-bold text-white mb-1">{{ application.application_id }}</h1>
+                        <p class="text-white-50 mb-0">
+                            {{ application.building_name }} &bull; Submitted on {{ application.submission_date|date:"d M Y" }}
+                        </p>
+                    </div>
+                    <div class="col-lg-5 text-lg-end no-print d-flex gap-2 justify-content-lg-end flex-wrap">
+                        <a href="{% url 'applicants:my_applications' %}" class="btn btn-outline-light btn-sm px-3">
+                            <i class="bi bi-arrow-left me-1"></i>Back to My Applications
+                        </a>
+                        <button onclick="window.print()" class="btn btn-light btn-sm px-3">
+                            <i class="bi bi-printer me-1"></i>Print Dossier
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Application Status Overview Card -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+                        <div>
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Current Lifecycle Status</small>
+                            <div class="d-flex align-items-center gap-2">
+                                {% if application.status == 'APPROVED' %}
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle fs-6 px-3 py-2">
+                                        <i class="bi bi-check-circle-fill me-1"></i>{{ application.get_status_display }}
+                                    </span>
+                                {% elif application.status == 'PENDING' %}
+                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle fs-6 px-3 py-2">
+                                        <i class="bi bi-hourglass-split me-1"></i>{{ application.get_status_display }}
+                                    </span>
+                                {% elif application.status == 'UNDER_REVIEW' %}
+                                    <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle fs-6 px-3 py-2">
+                                        <i class="bi bi-eye-fill me-1"></i>{{ application.get_status_display }}
+                                    </span>
+                                {% elif application.status == 'DOCUMENTS_VERIFIED' %}
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle fs-6 px-3 py-2">
+                                        <i class="bi bi-file-earmark-check-fill me-1"></i>{{ application.get_status_display }}
+                                    </span>
+                                {% elif application.status == 'UNDER_INSPECTION' %}
+                                    <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle fs-6 px-3 py-2">
+                                        <i class="bi bi-clipboard2-check-fill me-1"></i>{{ application.get_status_display }}
+                                    </span>
+                                {% elif application.status == 'REJECTED' %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle fs-6 px-3 py-2">
+                                        <i class="bi bi-x-circle-fill me-1"></i>{{ application.get_status_display }}
+                                    </span>
+                                {% elif application.status == 'DEFICIENT' %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle fs-6 px-3 py-2">
+                                        <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ application.get_status_display }}
+                                    </span>
+                                {% else %}
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle fs-6 px-3 py-2">
+                                        {{ application.get_status_display }}
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="flex-grow-1 ms-md-4 ps-md-4 border-start-md border-secondary-subtle">
+                            <div class="text-dark small fw-medium mb-1">Status Explanation:</div>
+                            <div class="text-muted small">
+                                <i class="bi bi-info-circle text-primary me-1"></i>{{ status_description }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 1: Applicant Information -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-bottom d-flex align-items-center">
+                    <i class="bi bi-person-lines-fill text-danger fs-5 me-2"></i>
+                    <h5 class="fw-bold mb-0 text-dark">Applicant Information</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Applicant Name</small>
+                            <span class="fw-semibold text-dark">{{ application.full_name }}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Email Address</small>
+                            <span class="fw-semibold text-dark">{{ application.email }}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Mobile Number</small>
+                            <span class="fw-semibold text-dark font-monospace">+91 {{ application.mobile_number }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 2: Building Information -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-bottom d-flex align-items-center">
+                    <i class="bi bi-building text-danger fs-5 me-2"></i>
+                    <h5 class="fw-bold mb-0 text-dark">Building & Premises Information</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Building Name</small>
+                            <span class="fw-bold text-dark fs-6">{{ application.building_name }}</span>
+                        </div>
+                        <div class="col-md-6">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Building Type</small>
+                            <span class="fw-semibold text-dark">
+                                {{ application.get_building_type_display }}
+                                {% if application.building_type == 'OTHER' and application.building_type_other %}
+                                    <span class="text-muted">({{ application.building_type_other }})</span>
+                                {% endif %}
+                            </span>
+                        </div>
+
+                        <div class="col-12">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Building Address</small>
+                            <span class="text-dark">{{ application.building_address }}</span>
+                        </div>
+
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">City / Town</small>
+                            <span class="text-dark">{{ application.city }}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">State</small>
+                            <span class="text-dark">{{ application.state }}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">PIN Code</small>
+                            <span class="text-dark font-monospace">{{ application.pin_code }}</span>
+                        </div>
+
+                        <div class="col-md-3">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Number of Floors</small>
+                            <span class="fw-semibold text-dark">{{ application.num_floors }}</span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Built-up Area</small>
+                            <span class="fw-semibold text-dark">{{ application.builtup_area }} sq. m</span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Year of Construction</small>
+                            <span class="fw-semibold text-dark">{{ application.year_construction }}</span>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Occupancy Classification</small>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                {{ application.get_occupancy_type_display }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Section 3: Application Details & Remarks -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-bottom d-flex align-items-center">
+                    <i class="bi bi-file-earmark-text text-danger fs-5 me-2"></i>
+                    <h5 class="fw-bold mb-0 text-dark">Application Details</h5>
+                </div>
+                <div class="card-body p-4">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Application Reference</small>
+                            <span class="fw-bold text-dark font-monospace">{{ application.application_id }}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Application Type</small>
+                            <span class="fw-semibold text-dark">{{ application.get_application_type_display }}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Submission Date</small>
+                            <span class="text-dark">{{ application.submission_date|date:"d M Y" }}</span>
+                        </div>
+
+                        <div class="col-12">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Purpose of Application</small>
+                            <div class="p-3 bg-light rounded border text-dark">{{ application.purpose }}</div>
+                        </div>
+
+                        <div class="col-12">
+                            <small class="text-muted text-uppercase fw-semibold d-block mb-1">Additional Remarks</small>
+                            <div class="p-3 bg-light rounded border text-muted">
+                                {{ application.remarks|default:"No additional remarks provided." }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Navigation Actions -->
+            <div class="d-flex justify-content-between align-items-center mb-4 no-print flex-wrap gap-2">
+                <a href="{% url 'applicants:my_applications' %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left me-1"></i>Back to My Applications
+                </a>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'applicants:dashboard' %}" class="btn btn-primary">
+                        <i class="bi bi-grid-1x2-fill me-1"></i>Back to Dashboard
+                    </a>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+{% endblock %}

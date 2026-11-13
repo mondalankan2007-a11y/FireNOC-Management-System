@@ -243,7 +243,7 @@
                                                 {% endif %}
                                             </td>
                                             <td class="text-end pe-3">
-                                                <a href="#view-application" class="btn btn-sm btn-outline-primary" data-bs-toggle="tooltip" title="Application details view">
+                                                <a href="{% url 'applicants:application_details' app.id %}" class="btn btn-sm btn-outline-primary" data-bs-toggle="tooltip" title="Application details view">
                                                     View Details
                                                 </a>
                                             </td>

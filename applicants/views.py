@@ -12,7 +12,7 @@ from django.core.validators import validate_email
 from django.db import transaction
 from django.core.paginator import Paginator
 from django.db.models import Q
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import Application
 
@@ -612,3 +612,42 @@ def my_applications(request):
         'filter_query_string': filter_query_string,
     }
     return render(request, 'applicants/my_applications.html', context)
+
+
+@login_required(login_url='login')
+def application_details(request, application_id):
+    """
+    Application Details view.
+    Displays comprehensive details of a submitted Fire NOC application.
+
+    Security:
+    - Protected with @login_required decorator.
+    - Strictly filters application by applicant=request.user to ensure applicants
+      can only access their own applications.
+    - Returns HTTP 404 if the application doesn't exist or belongs to another applicant.
+    """
+    application = get_object_or_404(
+        Application.objects.filter(applicant=request.user),
+        pk=application_id
+    )
+
+    status_descriptions = {
+        'PENDING': 'Your application has been received and is waiting for initial departmental review.',
+        'UNDER_REVIEW': 'A fire safety desk officer is currently reviewing your application and submitted building parameters.',
+        'DOCUMENTS_VERIFIED': 'Your application details and documents have been verified. It is now queued for on-site physical inspection.',
+        'UNDER_INSPECTION': 'A fire inspection officer has been assigned and the site inspection is currently underway.',
+        'APPROVED': 'Your Fire NOC application has been approved by the department.',
+        'REJECTED': 'Your Fire NOC application has been rejected. Please review departmental feedback or contact support.',
+        'DEFICIENT': 'Deficiencies were identified during review or site inspection. Rectification is required.',
+    }
+
+    status_description = status_descriptions.get(
+        application.status,
+        'Your application is currently being processed by the fire department.'
+    )
+
+    context = {
+        'application': application,
+        'status_description': status_description,
+    }
+    return render(request, 'applicants/application_details.html', context)

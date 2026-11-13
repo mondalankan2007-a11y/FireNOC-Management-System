@@ -15,4 +15,7 @@ urlpatterns = [
 
     # My Applications listing
     path('applications/', views.my_applications, name='my_applications'),
+
+    # Application Details
+    path('applications/<int:application_id>/', views.application_details, name='application_details'),
 ]

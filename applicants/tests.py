@@ -1119,3 +1119,160 @@ class MyApplicationsViewTests(TestCase):
         self.assertContains(resp_b, 'User B Hub')
         self.assertNotContains(resp_b, 'User A Tower')
         self.assertNotContains(resp_b, 'User A Plaza')
+
+
+class ApplicationDetailsViewTests(TestCase):
+    """
+    Test suite for the Application Details view:
+    /applicant/applications/<int:application_id>/
+
+    Covers:
+    1. View an existing application belonging to authenticated applicant.
+    2. View an application that does not exist returns 404.
+    3. Try accessing another applicant's application returns 404 (data isolation / ownership).
+    4. Access the page without login redirects to /login/?next=...
+    5. Verify all displayed information matches PostgreSQL records.
+    6. Verify navigation links (Back to My Applications, Dashboard).
+    """
+
+    def setUp(self):
+        self.login_url = reverse('login')
+        self.user_a = User.objects.create_user(
+            username='applicant_a@firenoc.gov.in',
+            email='applicant_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.user_b = User.objects.create_user(
+            username='applicant_b@firenoc.gov.in',
+            email='applicant_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Other',
+            last_name='Applicant',
+        )
+
+        from applicants.models import Application
+        self.app_a = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='applicant_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Sunrise Commercial Hub',
+            building_type='COMMERCIAL',
+            building_type_other='',
+            building_address='123 Central Boulevard, Sector 5',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=8,
+            builtup_area='3500.50',
+            year_construction=2019,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Initial fire safety certification for commercial office complex.',
+            remarks='Equipped with fire hydrant system and automated smoke detectors.',
+            status='PENDING',
+        )
+
+        self.app_b = Application.objects.create(
+            applicant=self.user_b,
+            full_name='Other Applicant',
+            email='applicant_b@firenoc.gov.in',
+            mobile_number='9123456780',
+            building_name='Secret Tower',
+            building_type='RESIDENTIAL',
+            building_address='999 Private Road',
+            city='Mumbai',
+            state='Maharashtra',
+            pin_code='400001',
+            num_floors=20,
+            builtup_area='12000.00',
+            year_construction=2021,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Confidential residential clearance.',
+            status='UNDER_REVIEW',
+        )
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Access without login redirects to /login/?next=..."""
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={url}")
+
+    def test_view_existing_application(self):
+        """Authenticated applicant can view their own application details."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/application_details.html')
+        self.assertEqual(response.context['application'], self.app_a)
+
+    def test_view_nonexistent_application_returns_404(self):
+        """Viewing an application id that doesn't exist returns 404."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': 999999})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_cannot_view_other_applicant_application_returns_404(self):
+        """User A attempting to view User B's application receives a 404 response."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_b.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_displayed_information_matches_database_records(self):
+        """Verify all applicant, building, and application fields match the database."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # Applicant information
+        self.assertContains(response, 'Ankan Mondal')
+        self.assertContains(response, 'applicant_a@firenoc.gov.in')
+        self.assertContains(response, '9876543210')
+
+        # Application information
+        self.assertContains(response, self.app_a.application_id)
+        self.assertContains(response, 'New NOC')
+        self.assertContains(response, 'Pending Review')
+        self.assertContains(response, 'Initial fire safety certification for commercial office complex.')
+        self.assertContains(response, 'Equipped with fire hydrant system and automated smoke detectors.')
+
+        # Building information
+        self.assertContains(response, 'Sunrise Commercial Hub')
+        self.assertContains(response, 'Commercial')
+        self.assertContains(response, '123 Central Boulevard, Sector 5')
+        self.assertContains(response, 'Kolkata')
+        self.assertContains(response, 'West Bengal')
+        self.assertContains(response, '700091')
+        self.assertContains(response, '8')  # num_floors
+        self.assertContains(response, '3500.50')  # builtup_area
+        self.assertContains(response, '2019')  # year_construction
+        self.assertContains(response, 'Business')  # occupancy
+
+    def test_navigation_links_present(self):
+        """Back to My Applications and Back to Dashboard links exist and point to valid URLs."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        my_apps_url = reverse('applicants:my_applications')
+        dashboard_url = reverse('applicants:dashboard')
+        self.assertContains(response, f'href="{my_apps_url}"')
+        self.assertContains(response, f'href="{dashboard_url}"')
+
+    def test_my_applications_view_details_links_to_application_details(self):
+        """My Applications listing table View Details button links to application_details URL."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(reverse('applicants:my_applications'))
+        self.assertEqual(response.status_code, 200)
+        expected_detail_url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        self.assertContains(response, f'href="{expected_detail_url}"')
+
