@@ -860,3 +860,73 @@ def document_upload(request, application_id):
         'allowed_extensions': ['.pdf', '.jpg', '.jpeg', '.png'],
     }
     return render(request, 'applicants/document_upload.html', context)
+
+
+@login_required(login_url='login')
+def my_documents(request):
+    """
+    Applicant Uploaded Documents listing page.
+    Displays all documents uploaded by the currently authenticated applicant
+    across their Fire NOC applications, along with current verification status
+    and officer remarks if verified/rejected by the department.
+
+    Security & Ownership:
+    - Protected with @login_required.
+    - Strictly filters documents via application__applicant=request.user.
+    - Applicants can never see other applicants' uploaded documents.
+
+    Filtering & Search:
+    - status : filter by verification status (PENDING, VERIFIED, REJECTED)
+    - q      : search by document name, application reference ID, or building name
+    - page   : pagination page number (10 documents per page)
+    """
+    # Base queryset strictly scoped to authenticated user
+    docs_qs = ApplicationDocument.objects.filter(
+        application__applicant=request.user
+    ).select_related('application', 'verification').order_by('-uploaded_at')
+
+    # Status filter
+    status_filter = request.GET.get('status', '').strip().upper()
+    if status_filter in ['PENDING', 'VERIFIED', 'REJECTED']:
+        if status_filter == 'PENDING':
+            # Verification record missing OR status == 'PENDING'
+            docs_qs = docs_qs.filter(
+                Q(verification__isnull=True) | Q(verification__status='PENDING')
+            )
+        else:
+            docs_qs = docs_qs.filter(verification__status=status_filter)
+    else:
+        status_filter = ''
+
+    # Search filter
+    q = request.GET.get('q', '').strip()
+    if q:
+        docs_qs = docs_qs.filter(
+            Q(document_name__icontains=q) |
+            Q(application__application_id__icontains=q) |
+            Q(application__building_name__icontains=q)
+        )
+
+    # Pagination: 10 per page
+    paginator = Paginator(docs_qs, 10)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    # Build query string without page for pagination links
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    filter_query_string = query_params.urlencode()
+
+    # Get applicant's applications (for quick upload target selection or empty state CTA)
+    user_applications = Application.objects.filter(applicant=request.user).order_by('-created_at')
+
+    context = {
+        'page_obj': page_obj,
+        'documents': page_obj.object_list,
+        'total_count': paginator.count,
+        'status_filter': status_filter,
+        'q': q,
+        'filter_query_string': filter_query_string,
+        'user_applications': user_applications,
+        'latest_application': user_applications.first(),
+    }
+    return render(request, 'applicants/my_documents.html', context)

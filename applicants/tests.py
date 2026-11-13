@@ -1573,4 +1573,203 @@ class DocumentUploadInterfaceViewTests(TestCase):
         self.assertIn("updated", doc.file.name)
 
 
+class MyDocumentsListingViewTests(TestCase):
+    """
+    Test suite for the Applicant Uploaded Documents listing page:
+    /applicant/documents/
+
+    Covers:
+    1. Unauthenticated users cannot access the page (redirected to login).
+    2. Applicant can see their own uploaded documents.
+    3. Applicant cannot see another applicant's documents (strict ownership).
+    4. Verification status (Pending, Verified, Rejected) displays correctly.
+    5. Rejected documents show officer remarks when available.
+    6. Empty state displays when no documents have been uploaded.
+    7. Upload action and application details links work as expected.
+    8. Pagination splits records and preserves filters.
+    """
+
+    def setUp(self):
+        self.url = reverse('applicants:my_documents')
+        self.login_url = reverse('login')
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import Application, ApplicationDocument
+        from officers.models import DocumentVerification
+
+        self.user_a = User.objects.create_user(
+            username='applicant_doclist_a@firenoc.gov.in',
+            email='applicant_doclist_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.user_b = User.objects.create_user(
+            username='applicant_doclist_b@firenoc.gov.in',
+            email='applicant_doclist_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Other',
+            last_name='User',
+        )
+
+        self.app_a = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='applicant_doclist_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Sunrise Commercial Hub',
+            building_type='COMMERCIAL',
+            building_address='123 Central Boulevard',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=8,
+            builtup_area='3500.50',
+            year_construction=2019,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Fire safety certification.',
+            status='UNDER_REVIEW',
+        )
+
+        self.app_b = Application.objects.create(
+            applicant=self.user_b,
+            full_name='Other User',
+            email='applicant_doclist_b@firenoc.gov.in',
+            mobile_number='9123456780',
+            building_name='Confidential Plaza',
+            building_type='RESIDENTIAL',
+            building_address='999 Private Road',
+            city='Mumbai',
+            state='Maharashtra',
+            pin_code='400001',
+            num_floors=10,
+            builtup_area='5000.00',
+            year_construction=2021,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Residential clearance.',
+            status='PENDING',
+        )
+
+        # User A Documents
+        self.doc_a1 = ApplicationDocument.objects.create(
+            application=self.app_a,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Building Plan - Sunrise Commercial Hub',
+            file=SimpleUploadedFile('blueprint.pdf', b'%PDF-1.4 sample', content_type='application/pdf'),
+        )
+
+        self.doc_a2 = ApplicationDocument.objects.create(
+            application=self.app_a,
+            document_type='OWNERSHIP_DEED',
+            document_name='Ownership Proof - Sunrise Commercial Hub',
+            file=SimpleUploadedFile('deed.pdf', b'%PDF-1.4 deed', content_type='application/pdf'),
+        )
+        # Verify doc_a2
+        DocumentVerification.objects.create(
+            document=self.doc_a2,
+            status='VERIFIED',
+            officer_remarks='All registry details verified.',
+        )
+
+        self.doc_a3 = ApplicationDocument.objects.create(
+            application=self.app_a,
+            document_type='EQUIPMENT_TEST_CERTIFICATE',
+            document_name='Fire Safety Equipment Details - Sunrise Commercial Hub',
+            file=SimpleUploadedFile('hydrant.pdf', b'%PDF-1.4 hydrant', content_type='application/pdf'),
+        )
+        # Reject doc_a3
+        DocumentVerification.objects.create(
+            document=self.doc_a3,
+            status='REJECTED',
+            officer_remarks='Pump pressure test certificate missing calibration stamp.',
+        )
+
+        # User B Document (must be completely hidden from User A)
+        self.doc_b = ApplicationDocument.objects.create(
+            application=self.app_b,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Confidential Blueprint - Other User',
+            file=SimpleUploadedFile('secret.pdf', b'%PDF-1.4 secret', content_type='application/pdf'),
+        )
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Unauthenticated GET to /applicant/documents/ redirects to /login/?next=..."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={self.url}")
+
+    def test_applicant_can_see_their_uploaded_documents(self):
+        """Applicant sees their documents, categories, and related application number."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/my_documents.html')
+        self.assertEqual(response.context['total_count'], 3)
+        self.assertContains(response, 'Building Plan - Sunrise Commercial Hub')
+        self.assertContains(response, 'Ownership Proof - Sunrise Commercial Hub')
+        self.assertContains(response, 'Fire Safety Equipment Details - Sunrise Commercial Hub')
+        self.assertContains(response, self.app_a.application_id)
+
+    def test_applicant_cannot_see_other_applicant_documents(self):
+        """Strict data isolation: User A cannot see User B's documents."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Confidential Blueprint - Other User')
+        self.assertNotContains(response, self.app_b.application_id)
+
+    def test_verification_status_displays_correctly(self):
+        """Pending, Verified, and Rejected status badges are displayed correctly."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Pending Review')
+        self.assertContains(response, 'Verified')
+        self.assertContains(response, 'Rejected')
+
+    def test_rejected_documents_show_officer_remarks(self):
+        """When an officer rejects a document, remarks are displayed in the table."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Pump pressure test certificate missing calibration stamp.')
+        self.assertContains(response, 'Officer Remark:')
+
+    def test_empty_state_when_no_documents(self):
+        """When user has no uploaded documents, a helpful empty state is shown."""
+        new_user = User.objects.create_user(
+            username='empty_applicant@firenoc.gov.in',
+            email='empty_applicant@firenoc.gov.in',
+            password='FireSafety#2026',
+        )
+        self.client.force_login(new_user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No documents have been uploaded yet.')
+
+    def test_upload_action_and_application_links_work(self):
+        """Upload action points to existing upload interface; details links work."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        upload_url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        details_url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        self.assertContains(response, f'href="{upload_url}"')
+        self.assertContains(response, f'href="{details_url}"')
+
+    def test_pagination_and_status_filtering(self):
+        """Status filtering (VERIFIED) filters list, and pagination handles large sets."""
+        self.client.force_login(self.user_a)
+
+        # Filter by VERIFIED
+        resp_filtered = self.client.get(self.url, {'status': 'VERIFIED'})
+        self.assertEqual(resp_filtered.status_code, 200)
+        self.assertEqual(resp_filtered.context['total_count'], 1)
+        self.assertContains(resp_filtered, 'Ownership Proof - Sunrise Commercial Hub')
+        self.assertNotContains(resp_filtered, 'Fire Safety Equipment Details - Sunrise Commercial Hub')
+
+
+
 

@@ -21,4 +21,7 @@ urlpatterns = [
 
     # Document Upload Interface
     path('applications/<int:application_id>/documents/', views.document_upload, name='document_upload'),
+
+    # Applicant Uploaded Documents Listing
+    path('documents/', views.my_documents, name='my_documents'),
 ]
