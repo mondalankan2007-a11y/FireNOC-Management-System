@@ -2702,3 +2702,205 @@ class RolePermissionsAndSecurityHardeningTests(TestCase):
         })
         self.assertEqual(resp_post.status_code, 404)
         self.assertEqual(self.app_a.documents.count(), 0)
+
+
+# ===========================================================================
+# Commit 18 Tests: Complete End-to-End FireNOC Workflow
+# ===========================================================================
+
+class CompleteRealWorldFireNOCWorkflowTests(TestCase):
+    def test_complete_real_world_lifecycle_from_applicant_to_admin_to_issuance(self):
+        # 1. Applicant Registration
+        reg_data = {
+            'full_name': 'Ananya Roy',
+            'email': 'ananya@firenoc.gov.in',
+            'mobile_number': '9876543210',
+            'password': 'SecurePassword#2026',
+            'confirm_password': 'SecurePassword#2026',
+        }
+        res_reg = self.client.post(reverse('register'), reg_data)
+        self.assertEqual(res_reg.status_code, 302)
+        applicant_user = User.objects.get(username='ananya@firenoc.gov.in')
+
+        # 2. Applicant Login
+        self.client.login(username='ananya@firenoc.gov.in', password='SecurePassword#2026')
+
+        # 3. Create & Submit Application
+        app_data = {
+            'mobile_number': '9876543210',
+            'building_name': 'Grand Royale Commercial Hub',
+            'building_type': 'COMMERCIAL',
+            'building_type_other': '',
+            'building_address': 'Plot 404, Sector 5, Salt Lake',
+            'city': 'Kolkata',
+            'state': 'West Bengal',
+            'pin_code': '700091',
+            'num_floors': '12',
+            'builtup_area': '5500.00',
+            'year_construction': '2022',
+            'occupancy_type': 'BUSINESS',
+            'application_type': 'NEW_NOC',
+            'purpose': 'New Commercial Fire Safety NOC issuance.',
+            'remarks': 'Equipped with dedicated fire risers and sprinklers.',
+            'declaration': 'on',
+        }
+        res_sub = self.client.post(reverse('applicants:application_new'), app_data)
+        self.assertEqual(res_sub.status_code, 302)
+
+        application = Application.objects.get(applicant=applicant_user)
+        self.assertEqual(application.status, 'PENDING')
+        self.assertTrue(application.application_id.startswith('NOC-'))
+
+        # 4. Upload Documents
+        upload_url = reverse('applicants:document_upload', kwargs={'application_id': application.id})
+        pdf_file = SimpleUploadedFile('plan.pdf', b'%PDF-1.4 sample content', content_type='application/pdf')
+        res_up = self.client.post(upload_url, {
+            'doc_BUILDING_PLAN': pdf_file,
+        })
+        self.assertEqual(res_up.status_code, 302)
+        self.assertEqual(application.documents.count(), 1)
+        doc = application.documents.first()
+
+        # 5. Officer logs in
+        officer_user, _ = create_officer_user(
+            username='e2e_lead_officer',
+            email='e2e_lead@firenoc.gov.in',
+            password='OfficerPass#2026',
+            officer_id='FO-E2E-FULL',
+        )
+        self.client.logout()
+        self.client.login(username='e2e_lead_officer', password='OfficerPass#2026')
+
+        # 6. Officer views queue and detail
+        res_q = self.client.get(reverse('officers:application_list'))
+        self.assertContains(res_q, application.application_id)
+
+        # 7. Officer verifies document
+        res_vdoc = self.client.post(
+            reverse('officers:document_verify', args=[application.pk, doc.pk]),
+            {'action': 'VERIFY', 'officer_remarks': 'Architectural layout fully compliant with fire safety setbacks.'}
+        )
+        self.assertEqual(res_vdoc.status_code, 302)
+        doc.refresh_from_db()
+        self.assertEqual(doc.verification.status, 'VERIFIED')
+
+        # 8. Complete desk review -> DOCUMENTS_VERIFIED
+        res_rev = self.client.post(
+            reverse('officers:application_review', args=[application.pk]),
+            {'verification_status': 'DOCUMENTS_VERIFIED', 'officer_remarks': 'All blueprint checks clear.'}
+        )
+        self.assertEqual(res_rev.status_code, 302)
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'DOCUMENTS_VERIFIED')
+
+        # 9. Schedule site inspection
+        res_sched = self.client.post(reverse('officers:schedule_inspection', args=[application.pk]), {
+            'scheduled_date': '2026-12-15',
+            'scheduled_time': '10:30',
+            'location': 'Grand Royale Site',
+        })
+        self.assertEqual(res_sched.status_code, 302)
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'UNDER_INSPECTION')
+
+        insp1 = application.inspections.first()
+        self.assertEqual(insp1.status, Inspection.STATUS_SCHEDULED)
+
+        # 10. Start inspection & update checklist
+        self.client.post(reverse('officers:inspection_start', args=[insp1.pk]))
+        insp1.refresh_from_db()
+        self.assertEqual(insp1.status, Inspection.STATUS_IN_PROGRESS)
+
+        self.client.post(reverse('officers:inspection_checklist_save', args=[insp1.pk]), {
+            'checklist_EXTINGUISHER_AVAILABLE_status': InspectionChecklistItem.STATUS_COMPLIANT,
+            'checklist_EXITS_UNOBSTRUCTED_status': InspectionChecklistItem.STATUS_NON_COMPLIANT,
+            'checklist_EXITS_UNOBSTRUCTED_remarks': 'Staircase 2 has temporary construction debris.',
+        })
+
+        # 11. Complete inspection with REQUIRES_RECTIFICATION
+        self.client.post(reverse('officers:inspection_complete', args=[insp1.pk]), {
+            'overall_result': InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+            'general_observations': 'Exit obstruction found on Staircase 2.',
+        })
+        insp1.refresh_from_db()
+        self.assertEqual(insp1.status, Inspection.STATUS_COMPLETED)
+
+        # 12. Create deficiency
+        self.client.post(reverse('officers:deficiency_create', args=[insp1.pk]), {
+            'title': 'Staircase 2 Egress Obstruction',
+            'description': 'Construction debris obstructing fire exit.',
+            'severity': Deficiency.SEVERITY_MAJOR,
+            'officer_remarks': 'Clear immediately and verify with photo evidence.',
+        })
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'DEFICIENT')
+        deficiency = application.deficiencies.first()
+
+        # 13. Applicant submits rectification
+        self.client.logout()
+        self.client.login(username='ananya@firenoc.gov.in', password='SecurePassword#2026')
+        self.client.post(reverse('officers:deficiency_rectify', args=[deficiency.pk]), {
+            'description': 'Staircase 2 completely cleared of all materials.',
+        })
+        deficiency.refresh_from_db()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_SUBMITTED)
+
+        # 14. Officer accepts rectification & closes deficiency
+        self.client.logout()
+        self.client.login(username='e2e_lead_officer', password='OfficerPass#2026')
+        rect = deficiency.rectifications.first()
+        self.client.post(
+            reverse('officers:rectification_review', args=[deficiency.pk, rect.pk]),
+            {'action': 'ACCEPT', 'review_remarks': 'Clearance verified on site.'}
+        )
+        self.client.post(reverse('officers:deficiency_close', args=[deficiency.pk]))
+        deficiency.refresh_from_db()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_CLOSED)
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'UNDER_INSPECTION')
+
+        # 15. Schedule & complete satisfactory re-inspection
+        self.client.post(reverse('officers:schedule_inspection', args=[application.pk]), {
+            'scheduled_date': '2026-12-18',
+            'scheduled_time': '11:00',
+            'location': 'Grand Royale Site',
+        })
+        insp2 = application.inspections.order_by('-pk').first()
+        self.client.post(reverse('officers:inspection_start', args=[insp2.pk]))
+        self.client.post(reverse('officers:inspection_complete', args=[insp2.pk]), {
+            'overall_result': InspectionReport.RESULT_SATISFACTORY,
+            'general_observations': 'All exits fully clear and functional.',
+        })
+        insp2.refresh_from_db()
+        self.assertEqual(insp2.report.overall_result, InspectionReport.RESULT_SATISFACTORY)
+
+        # 16. Officer Recommendation for Approval
+        self.assertTrue(application.is_ready_for_officer_recommendation())
+        self.client.post(reverse('officers:application_recommend', args=[application.pk]), {
+            'recommendation': ApplicationReview.RECOMMENDATION_APPROVED,
+            'recommendation_remarks': 'All fire safety installations verified and fully compliant.',
+        })
+        application.refresh_from_db()
+        self.assertEqual(application.officer_review.recommendation, ApplicationReview.RECOMMENDATION_APPROVED)
+
+        # 17. Admin Review & Final NOC Decision
+        admin_user = User.objects.create_superuser(username='super_admin', email='admin@gov.in', password='AdminPass#2026')
+        self.client.logout()
+        self.client.login(username='super_admin', password='AdminPass#2026')
+
+        res_decision = self.client.post(
+            reverse('admin:applicants_application_final_decision', args=[application.pk]),
+            {'decision': 'APPROVE'}
+        )
+        self.assertEqual(res_decision.status_code, 302)
+        application.refresh_from_db()
+        self.assertEqual(application.status, 'APPROVED')
+
+        # 18. Applicant views issued certificate
+        self.client.logout()
+        self.client.login(username='ananya@firenoc.gov.in', password='SecurePassword#2026')
+        res_final = self.client.get(reverse('applicants:application_details', kwargs={'application_id': application.id}))
+        self.assertEqual(res_final.status_code, 200)
+        self.assertContains(res_final, 'Fire NOC Certificate Approved & Issued')
+        self.assertContains(res_final, application.application_id)
+        self.assertContains(res_final, 'Grand Royale Commercial Hub')
