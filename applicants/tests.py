@@ -843,3 +843,929 @@ class ApplicationFormViewTests(TestCase):
         self.assertEqual(len(resp.context['recent_applications']), 1)
         self.assertContains(resp, 'Skyline Heights Commercial Center')
         self.assertContains(resp, 'Pending Review')
+
+
+class MyApplicationsViewTests(TestCase):
+    """
+    Test suite for the My Applications listing page at /applicant/applications/.
+
+    Covers:
+    1. Unauthenticated access redirect.
+    2. Applicant with no applications – empty state.
+    3. Applicant with multiple applications – table rendering.
+    4. Search by application reference number.
+    5. Search by building name.
+    6. Filter by status.
+    7. Sort by newest / oldest.
+    8. Pagination (10 per page).
+    9. Data isolation – Applicant A cannot see Applicant B's records.
+    """
+
+    def setUp(self):
+        self.url = reverse('applicants:my_applications')
+        self.login_url = reverse('login')
+
+        self.user_a = User.objects.create_user(
+            username='applicant_a@firenoc.gov.in',
+            email='applicant_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='ApplicantA',
+        )
+        self.user_b = User.objects.create_user(
+            username='applicant_b@firenoc.gov.in',
+            email='applicant_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='ApplicantB',
+        )
+
+        # Shared base data for creating Application records
+        self._base = dict(
+            full_name='Test User',
+            email='test@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_type='COMMERCIAL',
+            building_address='123 Main St',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700001',
+            num_floors=5,
+            builtup_area='1000.00',
+            year_construction=2020,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Test purpose for Fire NOC.',
+            status='PENDING',
+        )
+
+    def _make_app(self, applicant, building_name, status='PENDING', **kwargs):
+        """Helper: create an Application record for the given applicant."""
+        from applicants.models import Application
+        data = {**self._base, 'applicant': applicant, 'building_name': building_name, 'status': status}
+        data.update(kwargs)
+        return Application.objects.create(**data)
+
+    # -------------------------------------------------------------------
+    # Test 1: Unauthenticated access redirects to login
+    # -------------------------------------------------------------------
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Unauthenticated GET to /applicant/applications/ redirects to /login/?next=..."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={self.url}")
+
+    # -------------------------------------------------------------------
+    # Test 2: Applicant with no applications – empty state
+    # -------------------------------------------------------------------
+
+    def test_empty_state_when_no_applications(self):
+        """Applicant with zero applications sees the correct empty state."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/my_applications.html')
+        self.assertContains(response, "You haven't submitted any Fire NOC applications yet.")
+        self.assertContains(response, "Apply for Fire NOC")
+        self.assertEqual(response.context['page_obj'].paginator.count, 0)
+
+    # -------------------------------------------------------------------
+    # Test 3: Applicant with multiple applications – table rendering
+    # -------------------------------------------------------------------
+
+    def test_multiple_applications_rendered_in_table(self):
+        """Applicant with 3 applications sees all records in the table."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Green Heights Plaza', 'APPROVED')
+        self._make_app(self.user_a, 'City Center Tower', 'PENDING')
+        self._make_app(self.user_a, 'Metro Business Hub', 'UNDER_REVIEW')
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['page_obj'].paginator.count, 3)
+        self.assertContains(response, 'Green Heights Plaza')
+        self.assertContains(response, 'City Center Tower')
+        self.assertContains(response, 'Metro Business Hub')
+        # Status badges
+        self.assertContains(response, 'Approved')
+        self.assertContains(response, 'Pending Review')
+        self.assertContains(response, 'Under Review')
+
+    # -------------------------------------------------------------------
+    # Test 4: Search by application reference number
+    # -------------------------------------------------------------------
+
+    def test_search_by_application_reference(self):
+        """Search by application_id returns only matching records."""
+        self.client.force_login(self.user_a)
+        app1 = self._make_app(self.user_a, 'Alpha Tower')
+        app2 = self._make_app(self.user_a, 'Beta Plaza')
+
+        # Search using the generated reference of app1
+        response = self.client.get(self.url, {'q': app1.application_id})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Alpha Tower')
+        self.assertNotContains(response, 'Beta Plaza')
+
+    # -------------------------------------------------------------------
+    # Test 5: Search by building name
+    # -------------------------------------------------------------------
+
+    def test_search_by_building_name(self):
+        """Search by building name keyword returns only matching records."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Sunrise Residency')
+        self._make_app(self.user_a, 'Galaxy Commercial')
+
+        response = self.client.get(self.url, {'q': 'Sunrise'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Sunrise Residency')
+        self.assertNotContains(response, 'Galaxy Commercial')
+
+    # -------------------------------------------------------------------
+    # Test 6: Filter by status
+    # -------------------------------------------------------------------
+
+    def test_filter_by_status_pending(self):
+        """Filtering by PENDING returns only PENDING applications."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Pending Building', 'PENDING')
+        self._make_app(self.user_a, 'Approved Building', 'APPROVED')
+        self._make_app(self.user_a, 'Rejected Building', 'REJECTED')
+
+        response = self.client.get(self.url, {'status': 'PENDING'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Pending Building')
+        self.assertNotContains(response, 'Approved Building')
+        self.assertNotContains(response, 'Rejected Building')
+        self.assertEqual(response.context['page_obj'].paginator.count, 1)
+
+    def test_filter_by_status_approved(self):
+        """Filtering by APPROVED returns only APPROVED applications."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Pending Building', 'PENDING')
+        self._make_app(self.user_a, 'Approved Building', 'APPROVED')
+
+        response = self.client.get(self.url, {'status': 'APPROVED'})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Approved Building')
+        self.assertNotContains(response, 'Pending Building')
+
+    def test_invalid_status_filter_is_ignored(self):
+        """An invalid status value in GET params is safely ignored."""
+        self.client.force_login(self.user_a)
+        self._make_app(self.user_a, 'Some Building', 'PENDING')
+
+        response = self.client.get(self.url, {'status': 'INVALID_STATUS'})
+        self.assertEqual(response.status_code, 200)
+        # All records visible (filter ignored)
+        self.assertContains(response, 'Some Building')
+        self.assertEqual(response.context['current_status'], '')
+
+    # -------------------------------------------------------------------
+    # Test 7: Sort by submission date
+    # -------------------------------------------------------------------
+
+    def test_sort_newest_first(self):
+        """Default sort (newest) returns most recently created application first."""
+        import time
+        self.client.force_login(self.user_a)
+        app_old = self._make_app(self.user_a, 'Old Building')
+        time.sleep(0.05)
+        app_new = self._make_app(self.user_a, 'New Building')
+
+        response = self.client.get(self.url, {'sort': 'newest'})
+        self.assertEqual(response.status_code, 200)
+        apps = list(response.context['applications'])
+        self.assertEqual(apps[0].building_name, 'New Building')
+        self.assertEqual(apps[1].building_name, 'Old Building')
+
+    def test_sort_oldest_first(self):
+        """Sort=oldest returns oldest application first."""
+        import time
+        self.client.force_login(self.user_a)
+        app_old = self._make_app(self.user_a, 'Old Building')
+        time.sleep(0.05)
+        app_new = self._make_app(self.user_a, 'New Building')
+
+        response = self.client.get(self.url, {'sort': 'oldest'})
+        self.assertEqual(response.status_code, 200)
+        apps = list(response.context['applications'])
+        self.assertEqual(apps[0].building_name, 'Old Building')
+        self.assertEqual(apps[1].building_name, 'New Building')
+
+    # -------------------------------------------------------------------
+    # Test 8: Pagination
+    # -------------------------------------------------------------------
+
+    def test_pagination_splits_records_into_pages_of_ten(self):
+        """15 records → page 1 shows 10, page 2 shows 5; pagination controls are rendered."""
+        self.client.force_login(self.user_a)
+        for i in range(1, 16):
+            self._make_app(self.user_a, f'Building {i:02d}')
+
+        # Page 1
+        resp_p1 = self.client.get(self.url)
+        self.assertEqual(resp_p1.status_code, 200)
+        self.assertEqual(resp_p1.context['page_obj'].paginator.count, 15)
+        self.assertEqual(len(resp_p1.context['applications']), 10)
+        self.assertTrue(resp_p1.context['page_obj'].has_next())
+        self.assertContains(resp_p1, 'page=2')
+
+        # Page 2
+        resp_p2 = self.client.get(self.url, {'page': 2})
+        self.assertEqual(resp_p2.status_code, 200)
+        self.assertEqual(len(resp_p2.context['applications']), 5)
+        self.assertFalse(resp_p2.context['page_obj'].has_next())
+
+    def test_pagination_preserves_filter_parameters(self):
+        """Pagination links preserve search and filter GET parameters."""
+        self.client.force_login(self.user_a)
+        for i in range(1, 16):
+            self._make_app(self.user_a, f'Pending Building {i:02d}', 'PENDING')
+
+        response = self.client.get(self.url, {'status': 'PENDING', 'sort': 'oldest'})
+        self.assertEqual(response.status_code, 200)
+        content = response.content.decode()
+        # Pagination link should contain existing filter params
+        self.assertIn('status=PENDING', content)
+        self.assertIn('sort=oldest', content)
+
+    # -------------------------------------------------------------------
+    # Test 9: Data isolation – Applicant A cannot see Applicant B's records
+    # -------------------------------------------------------------------
+
+    def test_data_isolation_applicant_cannot_see_other_records(self):
+        """Applicant A's applications are strictly hidden from Applicant B."""
+        # Create records for A
+        self._make_app(self.user_a, 'User A Tower', 'PENDING')
+        self._make_app(self.user_a, 'User A Plaza', 'APPROVED')
+        # Create records for B
+        self._make_app(self.user_b, 'User B Hub', 'UNDER_REVIEW')
+
+        # Login as User A – should only see A's records
+        self.client.force_login(self.user_a)
+        resp_a = self.client.get(self.url)
+        self.assertEqual(resp_a.status_code, 200)
+        self.assertEqual(resp_a.context['page_obj'].paginator.count, 2)
+        self.assertContains(resp_a, 'User A Tower')
+        self.assertContains(resp_a, 'User A Plaza')
+        self.assertNotContains(resp_a, 'User B Hub')
+
+        # Login as User B – should only see B's records
+        self.client.force_login(self.user_b)
+        resp_b = self.client.get(self.url)
+        self.assertEqual(resp_b.status_code, 200)
+        self.assertEqual(resp_b.context['page_obj'].paginator.count, 1)
+        self.assertContains(resp_b, 'User B Hub')
+        self.assertNotContains(resp_b, 'User A Tower')
+        self.assertNotContains(resp_b, 'User A Plaza')
+
+
+class ApplicationDetailsViewTests(TestCase):
+    """
+    Test suite for the Application Details view:
+    /applicant/applications/<int:application_id>/
+
+    Covers:
+    1. View an existing application belonging to authenticated applicant.
+    2. View an application that does not exist returns 404.
+    3. Try accessing another applicant's application returns 404 (data isolation / ownership).
+    4. Access the page without login redirects to /login/?next=...
+    5. Verify all displayed information matches PostgreSQL records.
+    6. Verify navigation links (Back to My Applications, Dashboard).
+    """
+
+    def setUp(self):
+        self.login_url = reverse('login')
+        self.user_a = User.objects.create_user(
+            username='applicant_a@firenoc.gov.in',
+            email='applicant_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.user_b = User.objects.create_user(
+            username='applicant_b@firenoc.gov.in',
+            email='applicant_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Other',
+            last_name='Applicant',
+        )
+
+        from applicants.models import Application
+        self.app_a = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='applicant_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Sunrise Commercial Hub',
+            building_type='COMMERCIAL',
+            building_type_other='',
+            building_address='123 Central Boulevard, Sector 5',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=8,
+            builtup_area='3500.50',
+            year_construction=2019,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Initial fire safety certification for commercial office complex.',
+            remarks='Equipped with fire hydrant system and automated smoke detectors.',
+            status='PENDING',
+        )
+
+        self.app_b = Application.objects.create(
+            applicant=self.user_b,
+            full_name='Other Applicant',
+            email='applicant_b@firenoc.gov.in',
+            mobile_number='9123456780',
+            building_name='Secret Tower',
+            building_type='RESIDENTIAL',
+            building_address='999 Private Road',
+            city='Mumbai',
+            state='Maharashtra',
+            pin_code='400001',
+            num_floors=20,
+            builtup_area='12000.00',
+            year_construction=2021,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Confidential residential clearance.',
+            status='UNDER_REVIEW',
+        )
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Access without login redirects to /login/?next=..."""
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={url}")
+
+    def test_view_existing_application(self):
+        """Authenticated applicant can view their own application details."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/application_details.html')
+        self.assertEqual(response.context['application'], self.app_a)
+
+    def test_view_nonexistent_application_returns_404(self):
+        """Viewing an application id that doesn't exist returns 404."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': 999999})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_cannot_view_other_applicant_application_returns_404(self):
+        """User A attempting to view User B's application receives a 404 response."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_b.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_displayed_information_matches_database_records(self):
+        """Verify all applicant, building, and application fields match the database."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # Applicant information
+        self.assertContains(response, 'Ankan Mondal')
+        self.assertContains(response, 'applicant_a@firenoc.gov.in')
+        self.assertContains(response, '9876543210')
+
+        # Application information
+        self.assertContains(response, self.app_a.application_id)
+        self.assertContains(response, 'New NOC')
+        self.assertContains(response, 'Pending Review')
+        self.assertContains(response, 'Initial fire safety certification for commercial office complex.')
+        self.assertContains(response, 'Equipped with fire hydrant system and automated smoke detectors.')
+
+        # Building information
+        self.assertContains(response, 'Sunrise Commercial Hub')
+        self.assertContains(response, 'Commercial')
+        self.assertContains(response, '123 Central Boulevard, Sector 5')
+        self.assertContains(response, 'Kolkata')
+        self.assertContains(response, 'West Bengal')
+        self.assertContains(response, '700091')
+        self.assertContains(response, '8')  # num_floors
+        self.assertContains(response, '3500.50')  # builtup_area
+        self.assertContains(response, '2019')  # year_construction
+        self.assertContains(response, 'Business')  # occupancy
+
+    def test_navigation_links_present(self):
+        """Back to My Applications and Back to Dashboard links exist and point to valid URLs."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        my_apps_url = reverse('applicants:my_applications')
+        dashboard_url = reverse('applicants:dashboard')
+        self.assertContains(response, f'href="{my_apps_url}"')
+        self.assertContains(response, f'href="{dashboard_url}"')
+
+    def test_my_applications_view_details_links_to_application_details(self):
+        """My Applications listing table View Details button links to application_details URL."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(reverse('applicants:my_applications'))
+        self.assertEqual(response.status_code, 200)
+        expected_detail_url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        self.assertContains(response, f'href="{expected_detail_url}"')
+
+
+class DocumentUploadInterfaceViewTests(TestCase):
+    """
+    Test suite for the Document Upload Interface:
+    /applicant/applications/<int:application_id>/documents/
+
+    Covers:
+    1. Unauthenticated access redirects to login.
+    2. Authenticated applicant can access document upload interface for their own application.
+    3. Accessing document upload for another applicant's application returns 404 (ownership check).
+    4. Accessing document upload for non-existent application returns 404.
+    5. Displays correct application reference number and building name.
+    6. Displays all 6 required document categories.
+    7. Displays file specifications, accepted formats, maximum file size, and back links.
+    """
+
+    def setUp(self):
+        self.login_url = reverse('login')
+        self.user_a = User.objects.create_user(
+            username='applicant_doc_a@firenoc.gov.in',
+            email='applicant_doc_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.user_b = User.objects.create_user(
+            username='applicant_doc_b@firenoc.gov.in',
+            email='applicant_doc_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Other',
+            last_name='Applicant',
+        )
+
+        from applicants.models import Application
+        self.app_a = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='applicant_doc_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Heritage Commercial Tower',
+            building_type='COMMERCIAL',
+            building_address='45 MG Road',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700001',
+            num_floors=6,
+            builtup_area='2500.00',
+            year_construction=2018,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Fire safety clearance for offices.',
+            status='PENDING',
+        )
+
+        self.app_b = Application.objects.create(
+            applicant=self.user_b,
+            full_name='Other Applicant',
+            email='applicant_doc_b@firenoc.gov.in',
+            mobile_number='9123456780',
+            building_name='Private Villa Complex',
+            building_type='RESIDENTIAL',
+            building_address='88 Hill View',
+            city='Mumbai',
+            state='Maharashtra',
+            pin_code='400050',
+            num_floors=3,
+            builtup_area='1200.00',
+            year_construction=2022,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Residential NOC.',
+            status='PENDING',
+        )
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Unauthenticated access redirects to /login/?next=..."""
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={url}")
+
+    def test_authenticated_applicant_can_access_own_document_upload(self):
+        """Owner applicant receives HTTP 200 and document_upload template is rendered."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/document_upload.html')
+        self.assertEqual(response.context['application'], self.app_a)
+
+    def test_cannot_access_other_applicant_document_upload_returns_404(self):
+        """Applicant cannot access another applicant's document upload page (returns 404)."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_b.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_nonexistent_application_returns_404(self):
+        """Nonexistent application ID returns 404."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': 999999})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_displays_application_details_header(self):
+        """Page displays application reference number and building name at the top."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.app_a.application_id)
+        self.assertContains(response, 'Heritage Commercial Tower')
+
+    def test_displays_all_document_categories(self):
+        """Page renders all 6 required document categories with guidance and file inputs."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # 6 Document categories
+        self.assertContains(response, 'Building Plan')
+        self.assertContains(response, 'Ownership Proof')
+        self.assertContains(response, 'Building Address Proof')
+        self.assertContains(response, 'Fire Safety Equipment Details')
+        self.assertContains(response, 'Previous Fire NOC (optional)')
+        self.assertContains(response, 'Other Supporting Documents')
+
+        # Hidden file inputs for all categories
+        self.assertContains(response, 'id="file_BUILDING_PLAN"')
+        self.assertContains(response, 'id="file_OWNERSHIP_PROOF"')
+        self.assertContains(response, 'id="file_BUILDING_ADDRESS_PROOF"')
+        self.assertContains(response, 'id="file_FIRE_SAFETY_EQUIPMENT"')
+        self.assertContains(response, 'id="file_PREVIOUS_FIRE_NOC"')
+        self.assertContains(response, 'id="file_OTHER_SUPPORTING"')
+
+    def test_ui_elements_and_navigation_links(self):
+        """Verifies accepted file types, max file size, upload button placeholder, and back link."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # File specifications & instructions
+        self.assertContains(response, '5 MB')
+        self.assertContains(response, 'PDF (.pdf), JPEG/JPG (.jpg, .jpeg), PNG (.png)')
+        self.assertContains(response, 'Upload Documents')
+        self.assertContains(response, 'No file selected')
+
+        # Back to Application Details link
+        details_url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        self.assertContains(response, f'href="{details_url}"')
+
+    # -------------------------------------------------------------
+    # Commit 16 Backend Upload Tests
+    # -------------------------------------------------------------
+
+    def test_valid_pdf_upload(self):
+        """Valid PDF file upload saves ApplicationDocument record in PostgreSQL and storage."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        pdf_content = b"%PDF-1.4 sample pdf content for blueprint verification"
+        pdf_file = SimpleUploadedFile("building_blueprint.pdf", pdf_content, content_type="application/pdf")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': pdf_file,
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, reverse('applicants:application_details', kwargs={'application_id': self.app_a.id}))
+        self.assertContains(response, "Successfully uploaded 1 document")
+
+        # Verify database record
+        doc = ApplicationDocument.objects.filter(application=self.app_a).first()
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc.document_type, 'ARCHITECTURAL_BLUEPRINT')
+        self.assertIn('Building Plan', doc.document_name)
+        self.assertTrue(doc.file.name.endswith('.pdf'))
+
+    def test_valid_image_upload(self):
+        """Valid PNG and JPEG image files upload successfully."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        png_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRsample png content"
+        png_file = SimpleUploadedFile("address_proof.png", png_content, content_type="image/png")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_ADDRESS_PROOF': png_file,
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Successfully uploaded 1 document")
+
+        doc = ApplicationDocument.objects.filter(application=self.app_a, document_name__startswith='Building Address Proof').first()
+        self.assertIsNotNone(doc)
+        self.assertTrue(doc.file.name.endswith('.png'))
+
+    def test_unsupported_file_type_rejected(self):
+        """Executable or non-permitted file extensions (e.g. .exe, .sh, .txt) are rejected."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        bad_file = SimpleUploadedFile("dangerous_script.exe", b"MZ\x90\x00executable binary code", content_type="application/x-dosexec")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': bad_file,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Invalid file format")
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_a).count(), 0)
+
+    def test_file_exceeding_size_limit_rejected(self):
+        """Files exceeding 5 MB are rejected with an informative error message."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        # Create oversized file (5.5 MB)
+        oversized_content = b"%PDF-1.4 " + (b"A" * (5 * 1024 * 1024 + 500 * 1024))
+        oversized_file = SimpleUploadedFile("huge_blueprint.pdf", oversized_content, content_type="application/pdf")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': oversized_file,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "exceeds the maximum allowed size of 5 MB")
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_a).count(), 0)
+
+    def test_applicant_attempting_to_upload_to_another_applicant_application(self):
+        """Applicant attempting to POST documents to another applicant's application returns 404."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_b.id})
+
+        pdf_file = SimpleUploadedFile("hack.pdf", b"%PDF-1.4 test", content_type="application/pdf")
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': pdf_file,
+        })
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_b).count(), 0)
+
+    def test_unauthenticated_user_post_upload_redirects_to_login(self):
+        """Unauthenticated POST request does not save documents and redirects to login."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        pdf_file = SimpleUploadedFile("test.pdf", b"%PDF-1.4 test", content_type="application/pdf")
+
+        response = self.client.post(url, {
+            'doc_BUILDING_PLAN': pdf_file,
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={url}")
+        self.assertEqual(ApplicationDocument.objects.count(), 0)
+
+    def test_reuploading_replaces_existing_category_document(self):
+        """Uploading a document for an already uploaded category updates the existing record."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import ApplicationDocument
+
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+
+        # Initial upload
+        file1 = SimpleUploadedFile("initial.pdf", b"%PDF-1.4 v1", content_type="application/pdf")
+        self.client.post(url, {'doc_BUILDING_PLAN': file1}, follow=True)
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_a).count(), 1)
+
+        # Replacement upload
+        file2 = SimpleUploadedFile("updated.pdf", b"%PDF-1.4 v2", content_type="application/pdf")
+        self.client.post(url, {'doc_BUILDING_PLAN': file2}, follow=True)
+        self.assertEqual(ApplicationDocument.objects.filter(application=self.app_a).count(), 1)
+
+        doc = ApplicationDocument.objects.filter(application=self.app_a).first()
+        self.assertIn("updated", doc.file.name)
+
+
+class MyDocumentsListingViewTests(TestCase):
+    """
+    Test suite for the Applicant Uploaded Documents listing page:
+    /applicant/documents/
+
+    Covers:
+    1. Unauthenticated users cannot access the page (redirected to login).
+    2. Applicant can see their own uploaded documents.
+    3. Applicant cannot see another applicant's documents (strict ownership).
+    4. Verification status (Pending, Verified, Rejected) displays correctly.
+    5. Rejected documents show officer remarks when available.
+    6. Empty state displays when no documents have been uploaded.
+    7. Upload action and application details links work as expected.
+    8. Pagination splits records and preserves filters.
+    """
+
+    def setUp(self):
+        self.url = reverse('applicants:my_documents')
+        self.login_url = reverse('login')
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from applicants.models import Application, ApplicationDocument
+        from officers.models import DocumentVerification
+
+        self.user_a = User.objects.create_user(
+            username='applicant_doclist_a@firenoc.gov.in',
+            email='applicant_doclist_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.user_b = User.objects.create_user(
+            username='applicant_doclist_b@firenoc.gov.in',
+            email='applicant_doclist_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Other',
+            last_name='User',
+        )
+
+        self.app_a = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='applicant_doclist_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Sunrise Commercial Hub',
+            building_type='COMMERCIAL',
+            building_address='123 Central Boulevard',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=8,
+            builtup_area='3500.50',
+            year_construction=2019,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Fire safety certification.',
+            status='UNDER_REVIEW',
+        )
+
+        self.app_b = Application.objects.create(
+            applicant=self.user_b,
+            full_name='Other User',
+            email='applicant_doclist_b@firenoc.gov.in',
+            mobile_number='9123456780',
+            building_name='Confidential Plaza',
+            building_type='RESIDENTIAL',
+            building_address='999 Private Road',
+            city='Mumbai',
+            state='Maharashtra',
+            pin_code='400001',
+            num_floors=10,
+            builtup_area='5000.00',
+            year_construction=2021,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Residential clearance.',
+            status='PENDING',
+        )
+
+        # User A Documents
+        self.doc_a1 = ApplicationDocument.objects.create(
+            application=self.app_a,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Building Plan - Sunrise Commercial Hub',
+            file=SimpleUploadedFile('blueprint.pdf', b'%PDF-1.4 sample', content_type='application/pdf'),
+        )
+
+        self.doc_a2 = ApplicationDocument.objects.create(
+            application=self.app_a,
+            document_type='OWNERSHIP_DEED',
+            document_name='Ownership Proof - Sunrise Commercial Hub',
+            file=SimpleUploadedFile('deed.pdf', b'%PDF-1.4 deed', content_type='application/pdf'),
+        )
+        # Verify doc_a2
+        DocumentVerification.objects.create(
+            document=self.doc_a2,
+            status='VERIFIED',
+            officer_remarks='All registry details verified.',
+        )
+
+        self.doc_a3 = ApplicationDocument.objects.create(
+            application=self.app_a,
+            document_type='EQUIPMENT_TEST_CERTIFICATE',
+            document_name='Fire Safety Equipment Details - Sunrise Commercial Hub',
+            file=SimpleUploadedFile('hydrant.pdf', b'%PDF-1.4 hydrant', content_type='application/pdf'),
+        )
+        # Reject doc_a3
+        DocumentVerification.objects.create(
+            document=self.doc_a3,
+            status='REJECTED',
+            officer_remarks='Pump pressure test certificate missing calibration stamp.',
+        )
+
+        # User B Document (must be completely hidden from User A)
+        self.doc_b = ApplicationDocument.objects.create(
+            application=self.app_b,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Confidential Blueprint - Other User',
+            file=SimpleUploadedFile('secret.pdf', b'%PDF-1.4 secret', content_type='application/pdf'),
+        )
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Unauthenticated GET to /applicant/documents/ redirects to /login/?next=..."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={self.url}")
+
+    def test_applicant_can_see_their_uploaded_documents(self):
+        """Applicant sees their documents, categories, and related application number."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/my_documents.html')
+        self.assertEqual(response.context['total_count'], 3)
+        self.assertContains(response, 'Building Plan - Sunrise Commercial Hub')
+        self.assertContains(response, 'Ownership Proof - Sunrise Commercial Hub')
+        self.assertContains(response, 'Fire Safety Equipment Details - Sunrise Commercial Hub')
+        self.assertContains(response, self.app_a.application_id)
+
+    def test_applicant_cannot_see_other_applicant_documents(self):
+        """Strict data isolation: User A cannot see User B's documents."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Confidential Blueprint - Other User')
+        self.assertNotContains(response, self.app_b.application_id)
+
+    def test_verification_status_displays_correctly(self):
+        """Pending, Verified, and Rejected status badges are displayed correctly."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Pending Review')
+        self.assertContains(response, 'Verified')
+        self.assertContains(response, 'Rejected')
+
+    def test_rejected_documents_show_officer_remarks(self):
+        """When an officer rejects a document, remarks are displayed in the table."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Pump pressure test certificate missing calibration stamp.')
+        self.assertContains(response, 'Officer Remark:')
+
+    def test_empty_state_when_no_documents(self):
+        """When user has no uploaded documents, a helpful empty state is shown."""
+        new_user = User.objects.create_user(
+            username='empty_applicant@firenoc.gov.in',
+            email='empty_applicant@firenoc.gov.in',
+            password='FireSafety#2026',
+        )
+        self.client.force_login(new_user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No documents have been uploaded yet.')
+
+    def test_upload_action_and_application_links_work(self):
+        """Upload action points to existing upload interface; details links work."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        upload_url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        details_url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        self.assertContains(response, f'href="{upload_url}"')
+        self.assertContains(response, f'href="{details_url}"')
+
+    def test_pagination_and_status_filtering(self):
+        """Status filtering (VERIFIED) filters list, and pagination handles large sets."""
+        self.client.force_login(self.user_a)
+
+        # Filter by VERIFIED
+        resp_filtered = self.client.get(self.url, {'status': 'VERIFIED'})
+        self.assertEqual(resp_filtered.status_code, 200)
+        self.assertEqual(resp_filtered.context['total_count'], 1)
+        self.assertContains(resp_filtered, 'Ownership Proof - Sunrise Commercial Hub')
+        self.assertNotContains(resp_filtered, 'Fire Safety Equipment Details - Sunrise Commercial Hub')

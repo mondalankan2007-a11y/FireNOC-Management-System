@@ -46,12 +46,12 @@
                         </a>
 
                         <!-- 3. My Applications -->
-                        <a class="nav-link" href="#my-applications" data-bs-toggle="tooltip" title="View all submitted applications">
+                        <a class="nav-link" href="{% url 'applicants:my_applications' %}">
                             <i class="bi bi-folder2 me-2"></i>My Applications
                         </a>
 
                         <!-- 4. Documents -->
-                        <a class="nav-link" href="#documents" data-bs-toggle="tooltip" title="Uploaded fire safety documents and architectural layouts">
+                        <a class="nav-link" href="{% url 'applicants:my_documents' %}">
                             <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
                         </a>
 
@@ -243,7 +243,7 @@
                                                 {% endif %}
                                             </td>
                                             <td class="text-end pe-3">
-                                                <a href="#view-application" class="btn btn-sm btn-outline-primary" data-bs-toggle="tooltip" title="Application details view">
+                                                <a href="{% url 'applicants:application_details' app.id %}" class="btn btn-sm btn-outline-primary" data-bs-toggle="tooltip" title="Application details view">
                                                     View Details
                                                 </a>
                                             </td>

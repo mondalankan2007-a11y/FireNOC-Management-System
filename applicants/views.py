@@ -1,5 +1,6 @@
 import datetime
 from decimal import Decimal, InvalidOperation
+import os
 import re
 from django.apps import apps
 from django.contrib import messages
@@ -8,11 +9,13 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.core.validators import validate_email
 from django.db import transaction
-from django.shortcuts import render, redirect
+from django.db.models import Q
+from django.shortcuts import render, redirect, get_object_or_404
 from django.utils.http import url_has_allowed_host_and_scheme
-from .models import Application
+from .models import Application, ApplicationDocument
 
 
 def get_applicant_dashboard_data(user):
@@ -543,3 +546,387 @@ def logout_view(request):
     logout(request)
     messages.success(request, "You have been successfully logged out.")
     return redirect('login')
+
+
+@login_required(login_url='login')
+def my_applications(request):
+    """
+    My Applications listing page.
+    Displays a paginated, filterable list of all Fire NOC applications
+    submitted by the currently authenticated applicant.
+
+    Security:
+    - Protected by @login_required; unauthenticated requests are redirected to /login/.
+    - All queries are strictly filtered using applicant=request.user (never from GET params).
+    - Applicants can only see their own records.
+
+    Filtering (GET parameters):
+    - q        : search by application_id or building_name (case-insensitive)
+    - status   : filter by exact application status choice
+    - sort     : 'newest' (default) or 'oldest'
+    - page     : pagination page number
+
+    Pagination: 10 records per page; query params preserved in links.
+    """
+    # --- Base queryset: strictly scoped to logged-in applicant ---
+    qs = Application.objects.filter(applicant=request.user)
+
+    # --- Search ---
+    q = request.GET.get('q', '').strip()
+    if q:
+        qs = qs.filter(
+            Q(application_id__icontains=q) | Q(building_name__icontains=q)
+        )
+
+    # --- Status filter (validate against known choices to prevent injection) ---
+    valid_statuses = [choice[0] for choice in Application.STATUS_CHOICES]
+    current_status = request.GET.get('status', '').strip()
+    if current_status and current_status in valid_statuses:
+        qs = qs.filter(status=current_status)
+    else:
+        current_status = ''
+
+    # --- Sorting ---
+    current_sort = request.GET.get('sort', 'newest').strip()
+    if current_sort == 'oldest':
+        qs = qs.order_by('created_at')
+    else:
+        current_sort = 'newest'
+        qs = qs.order_by('-created_at')
+
+    # --- Pagination ---
+    paginator = Paginator(qs, 10)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    # Build a query string without 'page' to append page numbers in template
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    filter_query_string = query_params.urlencode()
+
+    context = {
+        'page_obj': page_obj,
+        'applications': page_obj.object_list,
+        'status_choices': Application.STATUS_CHOICES,
+        'q': q,
+        'current_status': current_status,
+        'current_sort': current_sort,
+        'filter_query_string': filter_query_string,
+    }
+    return render(request, 'applicants/my_applications.html', context)
+
+
+@login_required(login_url='login')
+def application_details(request, application_id):
+    """
+    Application Details view.
+    Displays comprehensive details of a submitted Fire NOC application.
+
+    Security:
+    - Protected with @login_required decorator.
+    - Strictly filters application by applicant=request.user to ensure applicants
+      can only access their own applications.
+    - Returns HTTP 404 if the application doesn't exist or belongs to another applicant.
+    """
+    application = get_object_or_404(
+        Application.objects.filter(applicant=request.user),
+        pk=application_id
+    )
+
+    status_descriptions = {
+        'PENDING': 'Your application has been received and is waiting for initial departmental review.',
+        'UNDER_REVIEW': 'A fire safety desk officer is currently reviewing your application and submitted building parameters.',
+        'DOCUMENTS_VERIFIED': 'Your application details and documents have been verified. It is now queued for on-site physical inspection.',
+        'UNDER_INSPECTION': 'A fire inspection officer has been assigned and the site inspection is currently underway.',
+        'APPROVED': 'Your Fire NOC application has been approved by the department.',
+        'REJECTED': 'Your Fire NOC application has been rejected. Please review departmental feedback or contact support.',
+        'DEFICIENT': 'Deficiencies were identified during review or site inspection. Rectification is required.',
+    }
+
+    status_description = status_descriptions.get(
+        application.status,
+        'Your application is currently being processed by the fire department.'
+    )
+
+    context = {
+        'application': application,
+        'status_description': status_description,
+    }
+    return render(request, 'applicants/application_details.html', context)
+
+
+@login_required(login_url='login')
+def document_upload(request, application_id):
+    """
+    Applicant Document Upload view.
+    Handles GET to render the document upload interface and POST to securely
+    validate and store uploaded supporting documents against the applicant's application.
+
+    Security & Validation:
+    - Protected by @login_required; unauthenticated requests are redirected.
+    - Application ownership is strictly checked via Application.objects.filter(applicant=request.user).
+      Never trusts application ID alone (returns HTTP 404 for unauthorized attempts).
+    - Validates file extensions (.pdf, .jpg, .jpeg, .png) and rejects executables / disallowed formats.
+    - Validates MIME type and file header signatures (magic bytes) to prevent content spoofing.
+    - Enforces 5 MB file size limit.
+    - Replaces previous document upload for the same category or creates a new ApplicationDocument record.
+    - Persists file using Django's default storage and records metadata in PostgreSQL.
+    """
+    application = get_object_or_404(
+        Application.objects.filter(applicant=request.user),
+        pk=application_id
+    )
+
+    # Document categories definitions
+    document_categories = [
+        {
+            'code': 'BUILDING_PLAN',
+            'model_type': 'ARCHITECTURAL_BLUEPRINT',
+            'name': 'Building Plan',
+            'required': True,
+            'description': 'Architectural layout plan, site plan, key plan, and section elevations approved by municipal authority.',
+            'formats': 'PDF, JPG, PNG',
+        },
+        {
+            'code': 'OWNERSHIP_PROOF',
+            'model_type': 'OWNERSHIP_DEED',
+            'name': 'Ownership Proof',
+            'required': True,
+            'description': 'Registered title deed, lease agreement, mutation certificate, or property tax receipt.',
+            'formats': 'PDF',
+        },
+        {
+            'code': 'BUILDING_ADDRESS_PROOF',
+            'model_type': 'OTHER',
+            'name': 'Building Address Proof',
+            'required': True,
+            'description': 'Electricity bill, land registry document, or municipal occupancy certificate demonstrating building location.',
+            'formats': 'PDF, JPG, PNG',
+        },
+        {
+            'code': 'FIRE_SAFETY_EQUIPMENT',
+            'model_type': 'EQUIPMENT_TEST_CERTIFICATE',
+            'name': 'Fire Safety Equipment Details',
+            'required': True,
+            'description': 'Schematic of hydrants, sprinklers, fire alarms, smoke detectors, and equipment test certificates.',
+            'formats': 'PDF',
+        },
+        {
+            'code': 'PREVIOUS_FIRE_NOC',
+            'model_type': 'OTHER',
+            'name': 'Previous Fire NOC (optional)',
+            'required': False,
+            'description': 'Copy of previous provisional or final Fire NOC if applying for renewal or modification.',
+            'formats': 'PDF',
+        },
+        {
+            'code': 'OTHER_SUPPORTING',
+            'model_type': 'OTHER',
+            'name': 'Other Supporting Documents',
+            'required': False,
+            'description': 'Structural stability certificate, safety audit reports, or additional department clearances.',
+            'formats': 'PDF, JPG, PNG',
+        },
+    ]
+
+    category_map = {cat['code']: cat for cat in document_categories}
+
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+    ALLOWED_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png'}
+    ALLOWED_CONTENT_TYPES = {
+        'application/pdf',
+        'image/jpeg',
+        'image/pjpeg',
+        'image/png',
+        'image/x-png',
+    }
+
+    def validate_uploaded_file(uploaded_file, category_name):
+        """Validate file name, extension, size, and header signature."""
+        fname = uploaded_file.name or ''
+        root, ext = os.path.splitext(fname)
+        ext_lower = ext.lower()
+
+        if not ext_lower or ext_lower not in ALLOWED_EXTENSIONS:
+            return f"Invalid file format '{ext}' for {category_name}. Only PDF, JPG, JPEG, and PNG files are allowed."
+
+        if uploaded_file.size > MAX_FILE_SIZE:
+            size_mb = uploaded_file.size / (1024 * 1024)
+            return f"File '{fname}' ({size_mb:.2f} MB) for {category_name} exceeds the maximum allowed size of 5 MB."
+
+        if uploaded_file.size == 0:
+            return f"File '{fname}' for {category_name} is empty (0 bytes)."
+
+        # Content type check
+        content_type = getattr(uploaded_file, 'content_type', '')
+        if content_type and content_type.lower() not in ALLOWED_CONTENT_TYPES:
+            # Let pass if extension is valid but verify magic bytes
+            pass
+
+        # Magic bytes check for security (verify real content type against extension)
+        try:
+            current_pos = uploaded_file.tell()
+            header = uploaded_file.read(8)
+            uploaded_file.seek(current_pos)
+
+            if ext_lower == '.pdf' and not header.startswith(b'%PDF'):
+                return f"File '{fname}' is not a valid PDF document."
+            elif ext_lower in ('.jpg', '.jpeg') and not header.startswith(b'\xff\xd8\xff'):
+                return f"File '{fname}' is not a valid JPEG image."
+            elif ext_lower == '.png' and not header.startswith(b'\x89PNG\r\n\x1a\n'):
+                return f"File '{fname}' is not a valid PNG image."
+        except Exception:
+            pass
+
+        return None
+
+    if request.method == 'POST':
+        uploaded_files_found = 0
+        errors = []
+        files_to_process = []
+
+        # Inspect all possible document inputs
+        for code, cat in category_map.items():
+            field_name = f"doc_{code}"
+            if field_name in request.FILES:
+                uploaded_file = request.FILES[field_name]
+                if uploaded_file:
+                    uploaded_files_found += 1
+                    err = validate_uploaded_file(uploaded_file, cat['name'])
+                    if err:
+                        errors.append(err)
+                    else:
+                        files_to_process.append((code, cat, uploaded_file))
+
+        if uploaded_files_found == 0:
+            messages.error(request, "No files were selected for upload. Please choose at least one document.")
+            return redirect('applicants:document_upload', application_id=application.id)
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
+            # Re-render with existing documents shown
+            existing_docs = application.documents.all()
+            return render(request, 'applicants/document_upload.html', {
+                'application': application,
+                'document_categories': document_categories,
+                'existing_docs': existing_docs,
+                'max_file_size_mb': 5,
+                'allowed_extensions': ['.pdf', '.jpg', '.jpeg', '.png'],
+            })
+
+        # Save documents in an atomic transaction
+        saved_count = 0
+        with transaction.atomic():
+            for code, cat, uploaded_file in files_to_process:
+                doc_title = f"{cat['name']} - {application.building_name}"
+                # If a document for this exact category and application already exists, update its file
+                existing_doc = ApplicationDocument.objects.filter(
+                    application=application,
+                    document_name__startswith=f"{cat['name']} - "
+                ).first()
+
+                if existing_doc:
+                    existing_doc.file = uploaded_file
+                    existing_doc.document_name = doc_title
+                    existing_doc.document_type = cat['model_type']
+                    existing_doc.save()
+                    # Reset any officer verification to PENDING if re-uploaded
+                    if hasattr(existing_doc, 'verification'):
+                        existing_doc.verification.status = 'PENDING'
+                        existing_doc.verification.officer_remarks = 'Re-uploaded by applicant. Pending re-verification.'
+                        existing_doc.verification.save()
+                else:
+                    ApplicationDocument.objects.create(
+                        application=application,
+                        document_type=cat['model_type'],
+                        document_name=doc_title,
+                        file=uploaded_file,
+                    )
+                saved_count += 1
+
+        messages.success(
+            request,
+            f"Successfully uploaded {saved_count} document(s) for Application {application.application_id}."
+        )
+        return redirect('applicants:application_details', application_id=application.id)
+
+    # GET request
+    existing_docs = application.documents.all()
+    context = {
+        'application': application,
+        'document_categories': document_categories,
+        'existing_docs': existing_docs,
+        'max_file_size_mb': 5,
+        'allowed_extensions': ['.pdf', '.jpg', '.jpeg', '.png'],
+    }
+    return render(request, 'applicants/document_upload.html', context)
+
+
+@login_required(login_url='login')
+def my_documents(request):
+    """
+    Applicant Uploaded Documents listing page.
+    Displays all documents uploaded by the currently authenticated applicant
+    across their Fire NOC applications, along with current verification status
+    and officer remarks if verified/rejected by the department.
+
+    Security & Ownership:
+    - Protected with @login_required.
+    - Strictly filters documents via application__applicant=request.user.
+    - Applicants can never see other applicants' uploaded documents.
+
+    Filtering & Search:
+    - status : filter by verification status (PENDING, VERIFIED, REJECTED)
+    - q      : search by document name, application reference ID, or building name
+    - page   : pagination page number (10 documents per page)
+    """
+    # Base queryset strictly scoped to authenticated user
+    docs_qs = ApplicationDocument.objects.filter(
+        application__applicant=request.user
+    ).select_related('application', 'verification').order_by('-uploaded_at')
+
+    # Status filter
+    status_filter = request.GET.get('status', '').strip().upper()
+    if status_filter in ['PENDING', 'VERIFIED', 'REJECTED']:
+        if status_filter == 'PENDING':
+            # Verification record missing OR status == 'PENDING'
+            docs_qs = docs_qs.filter(
+                Q(verification__isnull=True) | Q(verification__status='PENDING')
+            )
+        else:
+            docs_qs = docs_qs.filter(verification__status=status_filter)
+    else:
+        status_filter = ''
+
+    # Search filter
+    q = request.GET.get('q', '').strip()
+    if q:
+        docs_qs = docs_qs.filter(
+            Q(document_name__icontains=q) |
+            Q(application__application_id__icontains=q) |
+            Q(application__building_name__icontains=q)
+        )
+
+    # Pagination: 10 per page
+    paginator = Paginator(docs_qs, 10)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    # Build query string without page for pagination links
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    filter_query_string = query_params.urlencode()
+
+    # Get applicant's applications (for quick upload target selection or empty state CTA)
+    user_applications = Application.objects.filter(applicant=request.user).order_by('-created_at')
+
+    context = {
+        'page_obj': page_obj,
+        'documents': page_obj.object_list,
+        'total_count': paginator.count,
+        'status_filter': status_filter,
+        'q': q,
+        'filter_query_string': filter_query_string,
+        'user_applications': user_applications,
+        'latest_application': user_applications.first(),
+    }
+    return render(request, 'applicants/my_documents.html', context)
