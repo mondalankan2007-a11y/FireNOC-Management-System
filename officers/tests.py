@@ -1846,3 +1846,94 @@ class OfficerDocumentVerificationStabilityTests(TestCase):
         self.assertEqual(resp3.status_code, 302)
         self.application.refresh_from_db()
         self.assertEqual(self.application.status, 'DOCUMENTS_VERIFIED')
+
+
+# ===========================================================================
+# Commit 9 Tests: Stabilize Inspection Scheduling Workflow
+# ===========================================================================
+
+class OfficerInspectionSchedulingStabilityTests(TestCase):
+    def setUp(self):
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, _ = create_officer_user(
+            username='sched_officer',
+            email='sched_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-SCHED-1',
+        )
+        self.applicant = User.objects.create_user(
+            username='sched_applicant@firenoc.gov.in',
+            email='sched_applicant@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Sched Applicant',
+            email='sched_applicant@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Scheduling Tower',
+            building_type='COMMERCIAL',
+            building_address='55 Fire Safety Way',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=6,
+            builtup_area='2000.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='PENDING',
+        )
+
+    def test_cannot_schedule_if_not_document_verified(self):
+        self.client.login(username='sched_officer', password=self.officer_password)
+        resp = self.client.post(reverse('officers:schedule_inspection', args=[self.app.pk]), {
+            'scheduled_date': '2026-12-01',
+            'scheduled_time': '10:00',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(self.app.inspections.count(), 0)
+
+    def test_cannot_schedule_in_past(self):
+        self.app.status = 'DOCUMENTS_VERIFIED'
+        self.app.save()
+
+        self.client.login(username='sched_officer', password=self.officer_password)
+        resp = self.client.post(reverse('officers:schedule_inspection', args=[self.app.pk]), {
+            'scheduled_date': '2020-01-01',
+            'scheduled_time': '10:00',
+        })
+        self.assertEqual(resp.status_code, 200)  # Re-renders form with error
+        self.assertContains(resp, 'cannot be in the past')
+        self.assertEqual(self.app.inspections.count(), 0)
+
+    def test_schedule_success_and_start_transition(self):
+        self.app.status = 'DOCUMENTS_VERIFIED'
+        self.app.save()
+
+        self.client.login(username='sched_officer', password=self.officer_password)
+        resp = self.client.post(reverse('officers:schedule_inspection', args=[self.app.pk]), {
+            'scheduled_date': '2026-12-01',
+            'scheduled_time': '10:00',
+            'location': 'Site location',
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.app.refresh_from_db()
+        self.assertEqual(self.app.status, 'UNDER_INSPECTION')
+
+        inspection = self.app.inspections.first()
+        self.assertIsNotNone(inspection)
+        self.assertEqual(inspection.status, Inspection.STATUS_SCHEDULED)
+        self.assertTrue(inspection.checklist_items.exists())
+
+        # Start inspection
+        resp_start = self.client.post(reverse('officers:inspection_start', args=[inspection.pk]))
+        self.assertEqual(resp_start.status_code, 302)
+        inspection.refresh_from_db()
+        self.assertEqual(inspection.status, Inspection.STATUS_IN_PROGRESS)
+
+        # Cannot re-start already in-progress inspection
+        resp_restart = self.client.post(reverse('officers:inspection_start', args=[inspection.pk]))
+        self.assertEqual(resp_restart.status_code, 302)
+        inspection.refresh_from_db()
+        self.assertEqual(inspection.status, Inspection.STATUS_IN_PROGRESS)
