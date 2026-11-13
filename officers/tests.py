@@ -2182,3 +2182,124 @@ class OfficerDeficiencyAndRectificationWorkflowTests(TestCase):
         self.assertEqual(resp_acc.status_code, 302)
         deficiency.refresh_from_db()
         self.assertEqual(deficiency.status, Deficiency.STATUS_VERIFIED)
+
+
+# ===========================================================================
+# Commit 12 Tests: Complete Re-inspection and Deficiency Closure Flow
+# ===========================================================================
+
+class OfficerReinspectionAndDeficiencyClosureTests(TestCase):
+    def setUp(self):
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, _ = create_officer_user(
+            username='re_officer',
+            email='re_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-RE-1',
+        )
+        self.applicant = User.objects.create_user(
+            username='re_applicant@firenoc.gov.in',
+            email='re_applicant@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Reinspection Applicant',
+            email='re_applicant@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Reinspection Tower',
+            building_type='COMMERCIAL',
+            building_address='123 Reinspect Way',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=7,
+            builtup_area='3000.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='DOCUMENTS_VERIFIED',
+        )
+        # Create verified doc
+        doc = ApplicationDocument.objects.create(
+            application=self.app,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Blueprints',
+            file=SimpleUploadedFile('test.pdf', b'%PDF-1.4', content_type='application/pdf'),
+        )
+        DocumentVerification.objects.create(
+            document=doc,
+            status='VERIFIED',
+            verified_by=self.officer_user,
+        )
+
+        # First inspection: completed with rectification required
+        self.insp1 = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer_user,
+            scheduled_date=datetime.date.today(),
+            scheduled_time=datetime.time(10, 0),
+            status=Inspection.STATUS_COMPLETED,
+        )
+        InspectionReport.objects.create(
+            inspection=self.insp1,
+            overall_result=InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+            general_observations='Emergency signage damaged.',
+        )
+        self.app.status = 'DEFICIENT'
+        self.app.save()
+
+        self.deficiency = Deficiency.objects.create(
+            application=self.app,
+            inspection=self.insp1,
+            reported_by=self.officer_user,
+            title='Signage broken',
+            description='Floor 2 exit signs missing',
+            severity=Deficiency.SEVERITY_MINOR,
+            status=Deficiency.STATUS_OPEN,
+        )
+
+    def test_reinspection_preserves_history_and_updates_readiness(self):
+        self.client.login(username='re_officer', password=self.officer_password)
+
+        # Verify and close deficiency
+        self.deficiency.status = Deficiency.STATUS_VERIFIED
+        self.deficiency.save()
+
+        resp_close = self.client.post(reverse('officers:deficiency_close', args=[self.deficiency.pk]))
+        self.assertEqual(resp_close.status_code, 302)
+        self.deficiency.refresh_from_db()
+        self.assertEqual(self.deficiency.status, Deficiency.STATUS_CLOSED)
+        self.app.refresh_from_db()
+        self.assertEqual(self.app.status, 'UNDER_INSPECTION')
+
+        # Schedule re-inspection
+        resp_sched = self.client.post(reverse('officers:schedule_inspection', args=[self.app.pk]), {
+            'scheduled_date': '2026-12-10',
+            'scheduled_time': '14:00',
+            'location': 'Reinspection Site',
+        })
+        self.assertEqual(resp_sched.status_code, 302)
+        self.assertEqual(self.app.inspections.count(), 2)
+
+        insp2 = self.app.inspections.order_by('-pk').first()
+        self.assertEqual(insp2.status, Inspection.STATUS_SCHEDULED)
+        self.assertNotEqual(insp2.pk, self.insp1.pk)
+
+        # Start and complete re-inspection satisfactorily
+        self.client.post(reverse('officers:inspection_start', args=[insp2.pk]))
+        resp_comp = self.client.post(reverse('officers:inspection_complete', args=[insp2.pk]), {
+            'overall_result': InspectionReport.RESULT_SATISFACTORY,
+            'general_observations': 'Re-inspected: signs replaced and verified.',
+        })
+        self.assertEqual(resp_comp.status_code, 302)
+        insp2.refresh_from_db()
+        self.assertEqual(insp2.status, Inspection.STATUS_COMPLETED)
+        self.assertEqual(insp2.report.overall_result, InspectionReport.RESULT_SATISFACTORY)
+
+        # Historical inspection 1 report is preserved
+        self.insp1.refresh_from_db()
+        self.assertEqual(self.insp1.report.overall_result, InspectionReport.RESULT_REQUIRES_RECTIFICATION)
+
+        # Readiness is now TRUE
+        self.assertTrue(self.app.is_ready_for_officer_recommendation())
