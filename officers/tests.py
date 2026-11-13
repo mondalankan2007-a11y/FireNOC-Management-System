@@ -2303,3 +2303,100 @@ class OfficerReinspectionAndDeficiencyClosureTests(TestCase):
 
         # Readiness is now TRUE
         self.assertTrue(self.app.is_ready_for_officer_recommendation())
+
+
+# ===========================================================================
+# Commit 13 Tests: Finalize Officer Recommendation Workflow
+# ===========================================================================
+
+class OfficerRecommendationFinalizationTests(TestCase):
+    def setUp(self):
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, _ = create_officer_user(
+            username='rec_officer',
+            email='rec_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-REC-1',
+        )
+        self.applicant = User.objects.create_user(
+            username='rec_applicant@firenoc.gov.in',
+            email='rec_applicant@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Rec Applicant',
+            email='rec_applicant@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Recommendation Tower',
+            building_type='COMMERCIAL',
+            building_address='77 Final St',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=5,
+            builtup_area='1200.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='UNDER_INSPECTION',
+        )
+
+    def test_ineligible_application_cannot_be_recommended(self):
+        self.client.login(username='rec_officer', password=self.officer_password)
+        # No verified documents, no inspection -> blocked
+        resp = self.client.post(reverse('officers:application_recommend', args=[self.app.pk]), {
+            'recommendation': ApplicationReview.RECOMMENDATION_APPROVED,
+            'recommendation_remarks': 'Trying to recommend ineligible app',
+        })
+        self.assertEqual(resp.status_code, 302)
+        review = getattr(self.app, 'officer_review', None)
+        if review:
+            self.assertNotEqual(review.recommendation, ApplicationReview.RECOMMENDATION_APPROVED)
+
+    def test_eligible_application_recommendation_success_and_officer_cannot_issue_noc(self):
+        # Set up prerequisites
+        doc = ApplicationDocument.objects.create(
+            application=self.app,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Blueprints',
+            file=SimpleUploadedFile('test.pdf', b'%PDF-1.4', content_type='application/pdf'),
+        )
+        DocumentVerification.objects.create(document=doc, status='VERIFIED', verified_by=self.officer_user)
+        insp = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer_user,
+            scheduled_date=datetime.date.today(),
+            scheduled_time=datetime.time(10, 0),
+            status=Inspection.STATUS_COMPLETED,
+        )
+        InspectionReport.objects.create(
+            inspection=insp,
+            overall_result=InspectionReport.RESULT_SATISFACTORY,
+            general_observations='All compliant',
+        )
+
+        self.assertTrue(self.app.is_ready_for_officer_recommendation())
+
+        self.client.login(username='rec_officer', password=self.officer_password)
+        resp = self.client.post(reverse('officers:application_recommend', args=[self.app.pk]), {
+            'recommendation': ApplicationReview.RECOMMENDATION_APPROVED,
+            'recommendation_remarks': 'All fire safety norms strictly met. Forwarded to Admin.',
+        })
+        self.assertEqual(resp.status_code, 302)
+
+        self.app.refresh_from_db()
+        # Crucial: Officer recommendation does NOT set status to APPROVED (NOC not issued by officer)
+        self.assertNotEqual(self.app.status, 'APPROVED')
+        self.assertEqual(self.app.officer_review.recommendation, ApplicationReview.RECOMMENDATION_APPROVED)
+        self.assertEqual(self.app.officer_review.recommended_by, self.officer_user)
+        self.assertIn('Forwarded to Admin', self.app.officer_review.recommendation_remarks)
+
+    def test_applicant_cannot_submit_recommendation(self):
+        self.client.login(username='rec_applicant@firenoc.gov.in', password='ValidPass#2026')
+        resp = self.client.post(reverse('officers:application_recommend', args=[self.app.pk]), {
+            'recommendation': ApplicationReview.RECOMMENDATION_APPROVED,
+        })
+        # Blocked: redirected to officer login
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('officer/login', resp.url)
