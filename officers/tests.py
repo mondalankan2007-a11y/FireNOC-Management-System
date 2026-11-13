@@ -2611,3 +2611,94 @@ class FinalNocDecisionWorkflowTests(TestCase):
         resp_app = self.client.post(url, {'decision': 'APPROVE'})
         self.assertEqual(resp_app.status_code, 302)
         self.assertIn('admin/login', resp_app.url)
+
+
+# ===========================================================================
+# Commit 17 Tests: Harden Role Permissions and Access Control
+# ===========================================================================
+
+class RolePermissionsAndSecurityHardeningTests(TestCase):
+    def setUp(self):
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, self.officer_profile = create_officer_user(
+            username='perm_officer',
+            email='perm_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-PERM-1',
+        )
+        self.applicant_a = User.objects.create_user(
+            username='perm_app_a@firenoc.gov.in',
+            email='perm_app_a@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.applicant_b = User.objects.create_user(
+            username='perm_app_b@firenoc.gov.in',
+            email='perm_app_b@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app_a = Application.objects.create(
+            applicant=self.applicant_a,
+            full_name='Applicant A',
+            email='perm_app_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Fortress Tower',
+            building_type='COMMERCIAL',
+            building_address='1 Guard St',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=5,
+            builtup_area='1500.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='PENDING',
+        )
+
+    def test_applicant_cannot_access_officer_pages(self):
+        self.client.login(username='perm_app_a@firenoc.gov.in', password='ValidPass#2026')
+        protected_officer_urls = [
+            reverse('officers:dashboard'),
+            reverse('officers:application_list'),
+            reverse('officers:inspection_list'),
+            reverse('officers:deficiency_list'),
+        ]
+        for url in protected_officer_urls:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 302)
+            self.assertIn('officer/login', resp.url)
+
+    def test_applicant_cannot_access_admin_pages(self):
+        self.client.login(username='perm_app_a@firenoc.gov.in', password='ValidPass#2026')
+        resp = self.client.get('/admin/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('admin/login', resp.url)
+
+    def test_officer_cannot_access_admin_pages(self):
+        self.client.login(username='perm_officer', password=self.officer_password)
+        resp = self.client.get('/admin/')
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('admin/login', resp.url)
+
+    def test_deactivated_officer_blocked_from_officer_views(self):
+        self.officer_profile.is_active = False
+        self.officer_profile.save()
+
+        self.client.login(username='perm_officer', password=self.officer_password)
+        resp = self.client.get(reverse('officers:dashboard'))
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn('officer/login', resp.url)
+
+    def test_applicant_cannot_upload_document_to_another_applicant_application(self):
+        self.client.login(username='perm_app_b@firenoc.gov.in', password='ValidPass#2026')
+        upload_url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        resp = self.client.get(upload_url)
+        self.assertEqual(resp.status_code, 404)
+
+        resp_post = self.client.post(upload_url, {
+            'document_type': 'ARCHITECTURAL_BLUEPRINT',
+            'document_name': 'Hacked Document',
+            'document_file': SimpleUploadedFile('hacked.pdf', b'content', content_type='application/pdf'),
+        })
+        self.assertEqual(resp_post.status_code, 404)
+        self.assertEqual(self.app_a.documents.count(), 0)
