@@ -2495,3 +2495,119 @@ class AdminNocIntegrationTests(TestCase):
         resp = self.client.get(admin_list_url, {'final_review': 'ready'})
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Metropolis Complex')
+
+
+# ===========================================================================
+# Commit 15 Tests: Implement Final NOC Decision Workflow
+# ===========================================================================
+
+class FinalNocDecisionWorkflowTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            username='admin_decider',
+            email='admin_decider@firenoc.gov.in',
+            password='AdminPass#2026',
+        )
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, _ = create_officer_user(
+            username='officer_decider',
+            email='officer_decider@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-DEC-1',
+        )
+        self.applicant = User.objects.create_user(
+            username='app_decider@firenoc.gov.in',
+            email='app_decider@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Decision Applicant',
+            email='app_decider@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Decision Tower',
+            building_type='COMMERCIAL',
+            building_address='500 Capital Way',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=8,
+            builtup_area='3200.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='DOCUMENTS_VERIFIED',
+        )
+
+    def test_admin_cannot_approve_ineligible_application(self):
+        self.client.login(username='admin_decider', password='AdminPass#2026')
+        url = reverse('admin:applicants_application_final_decision', args=[self.app.pk])
+        resp = self.client.post(url, {'decision': 'APPROVE'})
+        self.assertEqual(resp.status_code, 302)
+        self.app.refresh_from_db()
+        self.assertNotEqual(self.app.status, 'APPROVED')
+
+    def test_admin_approves_eligible_application(self):
+        # Setup eligibility
+        doc = ApplicationDocument.objects.create(
+            application=self.app,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Blueprints',
+            file=SimpleUploadedFile('test.pdf', b'%PDF-1.4', content_type='application/pdf'),
+        )
+        DocumentVerification.objects.create(document=doc, status='VERIFIED', verified_by=self.officer_user)
+        insp = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer_user,
+            scheduled_date=datetime.date.today(),
+            scheduled_time=datetime.time(10, 0),
+            status=Inspection.STATUS_COMPLETED,
+        )
+        InspectionReport.objects.create(
+            inspection=insp,
+            overall_result=InspectionReport.RESULT_SATISFACTORY,
+            general_observations='All compliant',
+        )
+        ApplicationReview.objects.create(
+            application=self.app,
+            status='DOCUMENTS_VERIFIED',
+            recommendation=ApplicationReview.RECOMMENDATION_APPROVED,
+            recommendation_remarks='Approved by officer',
+            recommended_by=self.officer_user,
+            recommended_at=timezone.now(),
+        )
+
+        self.client.login(username='admin_decider', password='AdminPass#2026')
+        url = reverse('admin:applicants_application_final_decision', args=[self.app.pk])
+        resp = self.client.post(url, {'decision': 'APPROVE'})
+        self.assertEqual(resp.status_code, 302)
+        self.app.refresh_from_db()
+        self.assertEqual(self.app.status, 'APPROVED')
+
+    def test_admin_rejects_application_with_reason(self):
+        self.client.login(username='admin_decider', password='AdminPass#2026')
+        url = reverse('admin:applicants_application_final_decision', args=[self.app.pk])
+        resp = self.client.post(url, {
+            'decision': 'REJECT',
+            'rejection_reason': 'Building setback insufficient per municipal fire code.'
+        })
+        self.assertEqual(resp.status_code, 302)
+        self.app.refresh_from_db()
+        self.assertEqual(self.app.status, 'REJECTED')
+        self.assertIn('Building setback insufficient', self.app.remarks)
+
+    def test_officer_and_applicant_cannot_access_final_decision_endpoint(self):
+        url = reverse('admin:applicants_application_final_decision', args=[self.app.pk])
+
+        # Officer attempt
+        self.client.login(username='officer_decider', password=self.officer_password)
+        resp_off = self.client.post(url, {'decision': 'APPROVE'})
+        # Should redirect to admin login because officer is not staff/superuser
+        self.assertEqual(resp_off.status_code, 302)
+        self.assertIn('admin/login', resp_off.url)
+
+        # Applicant attempt
+        self.client.login(username='app_decider@firenoc.gov.in', password='ValidPass#2026')
+        resp_app = self.client.post(url, {'decision': 'APPROVE'})
+        self.assertEqual(resp_app.status_code, 302)
+        self.assertIn('admin/login', resp_app.url)

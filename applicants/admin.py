@@ -1,4 +1,6 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.shortcuts import redirect, get_object_or_404
+from django.urls import path
 from django.utils.html import format_html
 from django.utils.safestring import mark_safe
 from .models import Application, ApplicationDocument
@@ -155,6 +157,76 @@ class ApplicationAdmin(admin.ModelAdmin):
         DeficiencyInline,
         ApplicationDocumentInline,
     ]
+    actions = ['approve_final_noc', 'reject_final_noc']
+
+    @admin.action(description="Approve selected applications for Final Fire NOC")
+    def approve_final_noc(self, request, queryset):
+        approved_count = 0
+        skipped_count = 0
+        for app in queryset:
+            if app.status == 'APPROVED':
+                continue
+            eligibility = get_recommendation_eligibility(app)
+            review = getattr(app, 'officer_review', None)
+            has_rec = (review is not None and review.recommendation == ApplicationReview.RECOMMENDATION_APPROVED)
+            if eligibility['is_eligible'] and has_rec:
+                app.status = 'APPROVED'
+                app.save(update_fields=['status', 'updated_at'])
+                approved_count += 1
+            else:
+                skipped_count += 1
+        if approved_count:
+            self.message_user(request, f"Successfully approved {approved_count} application(s) for Fire NOC.", level=messages.SUCCESS)
+        if skipped_count:
+            self.message_user(request, f"Skipped {skipped_count} application(s): missing verified documents, satisfactory inspection, or officer approval recommendation.", level=messages.WARNING)
+
+    @admin.action(description="Reject selected applications for Final Fire NOC")
+    def reject_final_noc(self, request, queryset):
+        rejected_count = queryset.exclude(status='REJECTED').update(status='REJECTED')
+        self.message_user(request, f"Marked {rejected_count} application(s) as Rejected.", level=messages.SUCCESS)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                '<int:app_id>/final-decision/',
+                self.admin_site.admin_view(self.final_decision_view),
+                name='applicants_application_final_decision'
+            ),
+        ]
+        return custom_urls + urls
+
+    def final_decision_view(self, request, app_id):
+        app = get_object_or_404(Application, pk=app_id)
+        if request.method == 'POST':
+            decision = request.POST.get('decision', '').strip().upper()
+            rejection_reason = request.POST.get('rejection_reason', '').strip()
+
+            if decision == 'APPROVE':
+                eligibility = get_recommendation_eligibility(app)
+                review = getattr(app, 'officer_review', None)
+                has_rec = (review is not None and review.recommendation == ApplicationReview.RECOMMENDATION_APPROVED)
+                if not (eligibility['is_eligible'] and has_rec):
+                    reasons = "; ".join(eligibility['blocking_reasons']) or "Missing officer recommendation for approval"
+                    messages.error(request, f"Cannot approve final NOC: Application is not eligible ({reasons}).")
+                    return redirect('admin:applicants_application_change', app.pk)
+                app.status = 'APPROVED'
+                app.save(update_fields=['status', 'updated_at'])
+                messages.success(request, f"Final Fire NOC approved successfully for application {app.application_id}.")
+                return redirect('admin:applicants_application_change', app.pk)
+
+            elif decision == 'REJECT':
+                if not rejection_reason:
+                    messages.error(request, "Please provide a reason for rejecting the application.")
+                    return redirect('admin:applicants_application_change', app.pk)
+                app.status = 'REJECTED'
+                if rejection_reason:
+                    app.remarks = (f"{app.remarks}\n\n[ADMIN FINAL REJECTION REASON]: {rejection_reason}").strip()
+                app.save(update_fields=['status', 'remarks', 'updated_at'])
+                messages.warning(request, f"Application {app.application_id} has been marked as REJECTED.")
+                return redirect('admin:applicants_application_change', app.pk)
+
+        return redirect('admin:applicants_application_change', app.pk)
 
     fieldsets = (
         ('Application Identifiers', {
