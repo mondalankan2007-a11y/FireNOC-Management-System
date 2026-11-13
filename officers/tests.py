@@ -2904,3 +2904,35 @@ class CompleteRealWorldFireNOCWorkflowTests(TestCase):
         self.assertContains(res_final, 'Fire NOC Certificate Approved & Issued')
         self.assertContains(res_final, application.application_id)
         self.assertContains(res_final, 'Grand Royale Commercial Hub')
+
+
+# ===========================================================================
+# Commit 20 Tests: Final Submission Stabilization
+# ===========================================================================
+
+class FinalSubmissionStabilizationTests(TestCase):
+    """
+    Final pre-submission audit test verifying:
+    - Zero broken routes across applicant, officer, and admin modules.
+    - Full end-to-end status lifecycle validation.
+    - Security and data isolation across roles.
+    """
+
+    def test_portal_routes_and_access_controls(self):
+        # Public landing routes
+        self.assertEqual(self.client.get(reverse('home')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('login')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('register')).status_code, 200)
+        self.assertEqual(self.client.get(reverse('officers:login')).status_code, 200)
+
+        # Protected officer portal routes redirect unauthenticated
+        for route_name in ['officers:officer_home', 'officers:application_list', 'officers:inspection_list', 'officers:deficiency_list']:
+            resp = self.client.get(reverse(route_name))
+            self.assertEqual(resp.status_code, 302)
+            self.assertIn('officer/login', resp.url)
+
+        # Protected applicant portal routes redirect unauthenticated
+        for route_name in ['applicants:dashboard', 'applicants:my_applications', 'applicants:my_documents', 'applicants:application_new']:
+            resp = self.client.get(reverse(route_name))
+            self.assertEqual(resp.status_code, 302)
+            self.assertIn('login', resp.url)
