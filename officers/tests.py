@@ -1937,3 +1937,114 @@ class OfficerInspectionSchedulingStabilityTests(TestCase):
         self.assertEqual(resp_restart.status_code, 302)
         inspection.refresh_from_db()
         self.assertEqual(inspection.status, Inspection.STATUS_IN_PROGRESS)
+
+
+# ===========================================================================
+# Commit 10 Tests: Complete Inspection Checklist and Reporting
+# ===========================================================================
+
+class OfficerInspectionChecklistAndReportingTests(TestCase):
+    def setUp(self):
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, _ = create_officer_user(
+            username='check_officer',
+            email='check_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-CHK-1',
+        )
+        self.other_officer, _ = create_officer_user(
+            username='other_officer',
+            email='other_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-CHK-2',
+        )
+        self.applicant = User.objects.create_user(
+            username='check_applicant@firenoc.gov.in',
+            email='check_applicant@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Checklist Applicant',
+            email='check_applicant@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Checklist Tower',
+            building_type='COMMERCIAL',
+            building_address='88 Safety Blvd',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=5,
+            builtup_area='1500.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='UNDER_INSPECTION',
+        )
+        self.inspection = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer_user,
+            scheduled_date=datetime.date.today(),
+            scheduled_time=datetime.time(11, 0),
+            status=Inspection.STATUS_IN_PROGRESS,
+        )
+        from officers.views import _ensure_checklist
+        _ensure_checklist(self.inspection)
+
+    def test_checklist_update_and_persistence(self):
+        self.client.login(username='check_officer', password=self.officer_password)
+        resp = self.client.post(
+            reverse('officers:inspection_checklist_save', args=[self.inspection.pk]),
+            {
+                'checklist_EXTINGUISHER_AVAILABLE_status': InspectionChecklistItem.STATUS_COMPLIANT,
+                'checklist_EXTINGUISHER_AVAILABLE_remarks': 'All tested and certified.',
+            }
+        )
+        self.assertEqual(resp.status_code, 302)
+        item = self.inspection.checklist_items.get(item_type='EXTINGUISHER_AVAILABLE')
+        self.assertEqual(item.status, InspectionChecklistItem.STATUS_COMPLIANT)
+        self.assertEqual(item.remarks, 'All tested and certified.')
+
+    def test_complete_inspection_validation_and_report_creation(self):
+        self.client.login(username='check_officer', password=self.officer_password)
+        # Missing observations -> rejected
+        resp_fail = self.client.post(
+            reverse('officers:inspection_complete', args=[self.inspection.pk]),
+            {'overall_result': InspectionReport.RESULT_SATISFACTORY, 'general_observations': ''}
+        )
+        self.assertEqual(resp_fail.status_code, 302)
+        self.inspection.refresh_from_db()
+        self.assertEqual(self.inspection.status, Inspection.STATUS_IN_PROGRESS)
+
+        # Valid completion
+        resp_ok = self.client.post(
+            reverse('officers:inspection_complete', args=[self.inspection.pk]),
+            {
+                'overall_result': InspectionReport.RESULT_SATISFACTORY,
+                'general_observations': 'Everything meets safety standards.',
+                'officer_remarks': 'Recommended for NOC.',
+            }
+        )
+        self.assertEqual(resp_ok.status_code, 302)
+        self.inspection.refresh_from_db()
+        self.assertEqual(self.inspection.status, Inspection.STATUS_COMPLETED)
+        self.assertEqual(self.inspection.report.overall_result, InspectionReport.RESULT_SATISFACTORY)
+
+        # Cannot edit checklist after completion
+        resp_post_comp = self.client.post(
+            reverse('officers:inspection_checklist_save', args=[self.inspection.pk]),
+            {'checklist_EXTINGUISHER_AVAILABLE_status': InspectionChecklistItem.STATUS_NON_COMPLIANT}
+        )
+        self.assertEqual(resp_post_comp.status_code, 302)
+        item = self.inspection.checklist_items.get(item_type='EXTINGUISHER_AVAILABLE')
+        self.assertNotEqual(item.status, InspectionChecklistItem.STATUS_NON_COMPLIANT)
+
+    def test_other_officer_cannot_complete_or_modify(self):
+        self.client.login(username='other_officer', password=self.officer_password)
+        resp = self.client.post(
+            reverse('officers:inspection_complete', args=[self.inspection.pk]),
+            {'overall_result': InspectionReport.RESULT_SATISFACTORY, 'general_observations': 'Observation'}
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.inspection.refresh_from_db()
+        self.assertEqual(self.inspection.status, Inspection.STATUS_IN_PROGRESS)
