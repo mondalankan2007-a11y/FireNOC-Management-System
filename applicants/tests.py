@@ -1276,3 +1276,157 @@ class ApplicationDetailsViewTests(TestCase):
         expected_detail_url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
         self.assertContains(response, f'href="{expected_detail_url}"')
 
+
+class DocumentUploadInterfaceViewTests(TestCase):
+    """
+    Test suite for the Document Upload Interface:
+    /applicant/applications/<int:application_id>/documents/
+
+    Covers:
+    1. Unauthenticated access redirects to login.
+    2. Authenticated applicant can access document upload interface for their own application.
+    3. Accessing document upload for another applicant's application returns 404 (ownership check).
+    4. Accessing document upload for non-existent application returns 404.
+    5. Displays correct application reference number and building name.
+    6. Displays all 6 required document categories.
+    7. Displays file specifications, accepted formats, maximum file size, and back links.
+    """
+
+    def setUp(self):
+        self.login_url = reverse('login')
+        self.user_a = User.objects.create_user(
+            username='applicant_doc_a@firenoc.gov.in',
+            email='applicant_doc_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.user_b = User.objects.create_user(
+            username='applicant_doc_b@firenoc.gov.in',
+            email='applicant_doc_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Other',
+            last_name='Applicant',
+        )
+
+        from applicants.models import Application
+        self.app_a = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='applicant_doc_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Heritage Commercial Tower',
+            building_type='COMMERCIAL',
+            building_address='45 MG Road',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700001',
+            num_floors=6,
+            builtup_area='2500.00',
+            year_construction=2018,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Fire safety clearance for offices.',
+            status='PENDING',
+        )
+
+        self.app_b = Application.objects.create(
+            applicant=self.user_b,
+            full_name='Other Applicant',
+            email='applicant_doc_b@firenoc.gov.in',
+            mobile_number='9123456780',
+            building_name='Private Villa Complex',
+            building_type='RESIDENTIAL',
+            building_address='88 Hill View',
+            city='Mumbai',
+            state='Maharashtra',
+            pin_code='400050',
+            num_floors=3,
+            builtup_area='1200.00',
+            year_construction=2022,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Residential NOC.',
+            status='PENDING',
+        )
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Unauthenticated access redirects to /login/?next=..."""
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f"{self.login_url}?next={url}")
+
+    def test_authenticated_applicant_can_access_own_document_upload(self):
+        """Owner applicant receives HTTP 200 and document_upload template is rendered."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/document_upload.html')
+        self.assertEqual(response.context['application'], self.app_a)
+
+    def test_cannot_access_other_applicant_document_upload_returns_404(self):
+        """Applicant cannot access another applicant's document upload page (returns 404)."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_b.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_nonexistent_application_returns_404(self):
+        """Nonexistent application ID returns 404."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': 999999})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 404)
+
+    def test_displays_application_details_header(self):
+        """Page displays application reference number and building name at the top."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.app_a.application_id)
+        self.assertContains(response, 'Heritage Commercial Tower')
+
+    def test_displays_all_document_categories(self):
+        """Page renders all 6 required document categories with guidance and file inputs."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # 6 Document categories
+        self.assertContains(response, 'Building Plan')
+        self.assertContains(response, 'Ownership Proof')
+        self.assertContains(response, 'Building Address Proof')
+        self.assertContains(response, 'Fire Safety Equipment Details')
+        self.assertContains(response, 'Previous Fire NOC (optional)')
+        self.assertContains(response, 'Other Supporting Documents')
+
+        # Hidden file inputs for all categories
+        self.assertContains(response, 'id="file_BUILDING_PLAN"')
+        self.assertContains(response, 'id="file_OWNERSHIP_PROOF"')
+        self.assertContains(response, 'id="file_BUILDING_ADDRESS_PROOF"')
+        self.assertContains(response, 'id="file_FIRE_SAFETY_EQUIPMENT"')
+        self.assertContains(response, 'id="file_PREVIOUS_FIRE_NOC"')
+        self.assertContains(response, 'id="file_OTHER_SUPPORTING"')
+
+    def test_ui_elements_and_navigation_links(self):
+        """Verifies accepted file types, max file size, upload button placeholder, and back link."""
+        self.client.force_login(self.user_a)
+        url = reverse('applicants:document_upload', kwargs={'application_id': self.app_a.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        # File specifications & instructions
+        self.assertContains(response, '5 MB')
+        self.assertContains(response, 'PDF (.pdf), JPEG/JPG (.jpg, .jpeg), PNG (.png)')
+        self.assertContains(response, 'Upload Documents')
+        self.assertContains(response, 'No file selected')
+
+        # Back to Application Details link
+        details_url = reverse('applicants:application_details', kwargs={'application_id': self.app_a.id})
+        self.assertContains(response, f'href="{details_url}"')
+
+

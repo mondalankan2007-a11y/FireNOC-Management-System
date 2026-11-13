@@ -651,3 +651,79 @@ def application_details(request, application_id):
         'status_description': status_description,
     }
     return render(request, 'applicants/application_details.html', context)
+
+
+@login_required(login_url='login')
+def document_upload(request, application_id):
+    """
+    Applicant Document Upload Interface view.
+    Renders the document upload interface for a submitted Fire NOC application.
+
+    Security:
+    - Protected with @login_required decorator.
+    - Strictly filters application by applicant=request.user to ensure applicants
+      can only access documents for their own applications.
+    - Returns HTTP 404 if the application doesn't exist or belongs to another applicant.
+
+    Note:
+    - In this commit, this is an interface-only view (GET).
+    - Actual file saving and server-side processing are handled in the subsequent commit.
+    """
+    application = get_object_or_404(
+        Application.objects.filter(applicant=request.user),
+        pk=application_id
+    )
+
+    # Document categories as requested
+    document_categories = [
+        {
+            'code': 'BUILDING_PLAN',
+            'name': 'Building Plan',
+            'required': True,
+            'description': 'Architectural layout plan, site plan, key plan, and section elevations approved by municipal authority.',
+            'formats': 'PDF, JPG, PNG',
+        },
+        {
+            'code': 'OWNERSHIP_PROOF',
+            'name': 'Ownership Proof',
+            'required': True,
+            'description': 'Registered title deed, lease agreement, mutation certificate, or property tax receipt.',
+            'formats': 'PDF',
+        },
+        {
+            'code': 'BUILDING_ADDRESS_PROOF',
+            'name': 'Building Address Proof',
+            'required': True,
+            'description': 'Electricity bill, land registry document, or municipal occupancy certificate demonstrating building location.',
+            'formats': 'PDF, JPG, PNG',
+        },
+        {
+            'code': 'FIRE_SAFETY_EQUIPMENT',
+            'name': 'Fire Safety Equipment Details',
+            'required': True,
+            'description': 'Schematic of hydrants, sprinklers, fire alarms, smoke detectors, and equipment test certificates.',
+            'formats': 'PDF',
+        },
+        {
+            'code': 'PREVIOUS_FIRE_NOC',
+            'name': 'Previous Fire NOC (optional)',
+            'required': False,
+            'description': 'Copy of previous provisional or final Fire NOC if applying for renewal or modification.',
+            'formats': 'PDF',
+        },
+        {
+            'code': 'OTHER_SUPPORTING',
+            'name': 'Other Supporting Documents',
+            'required': False,
+            'description': 'Structural stability certificate, safety audit reports, or additional department clearances.',
+            'formats': 'PDF, JPG, PNG',
+        },
+    ]
+
+    context = {
+        'application': application,
+        'document_categories': document_categories,
+        'max_file_size_mb': 5,
+        'allowed_extensions': ['.pdf', '.jpg', '.jpeg', '.png'],
+    }
+    return render(request, 'applicants/document_upload.html', context)

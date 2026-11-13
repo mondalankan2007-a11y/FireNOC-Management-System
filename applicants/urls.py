@@ -18,4 +18,7 @@ urlpatterns = [
 
     # Application Details
     path('applications/<int:application_id>/', views.application_details, name='application_details'),
+
+    # Document Upload Interface
+    path('applications/<int:application_id>/documents/', views.document_upload, name='document_upload'),
 ]
