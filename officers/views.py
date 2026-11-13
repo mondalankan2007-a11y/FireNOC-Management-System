@@ -4,6 +4,7 @@ import os
 from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.db import models
 from django.shortcuts import render, redirect, get_object_or_404
@@ -1163,31 +1164,42 @@ def deficiency_detail(request, deficiency_id):
     return render(request, 'officers/deficiency_detail.html', context)
 
 
-@officer_required
+@login_required(login_url='login')
 def deficiency_rectify(request, deficiency_id):
     """
     Record a rectification submission for an Open deficiency and transition
     Deficiency: Open -> Submitted for Verification.
     Validates optional evidence file type and size.
+    Accessible to officers or the applicant owning the application.
     """
-    if request.method != 'POST':
-        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
-
     deficiency = get_object_or_404(Deficiency, pk=deficiency_id)
+
+    if not (is_officer(request.user) or request.user.is_superuser or request.user == deficiency.application.applicant):
+        messages.error(request, "You are not authorized to submit rectification for this application.")
+        return redirect('applicants:dashboard')
+
+    if request.method != 'POST':
+        if is_officer(request.user):
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        return redirect('applicants:application_details', application_id=deficiency.application_id)
 
     if deficiency.is_closed or not deficiency.can_transition_to(Deficiency.STATUS_SUBMITTED):
         messages.error(
             request,
             f"Cannot submit rectification: deficiency is currently '{deficiency.get_status_display()}'."
         )
-        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        if is_officer(request.user):
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        return redirect('applicants:application_details', application_id=deficiency.application_id)
 
     description = request.POST.get('description', '').strip()
     evidence_file = request.FILES.get('evidence_file')
 
     if not description:
         messages.error(request, "Rectification description is required.")
-        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        if is_officer(request.user):
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        return redirect('applicants:application_details', application_id=deficiency.application_id)
 
     if evidence_file is not None:
         ext = os.path.splitext(evidence_file.name)[1].lower()
@@ -1196,13 +1208,17 @@ def deficiency_rectify(request, deficiency_id):
                 request,
                 "Invalid evidence file format. Allowed formats: PDF, JPG, JPEG, PNG."
             )
-            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+            if is_officer(request.user):
+                return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+            return redirect('applicants:application_details', application_id=deficiency.application_id)
         if evidence_file.size > MAX_EVIDENCE_SIZE_BYTES:
             messages.error(
                 request,
                 "Evidence file size exceeds the 5 MB limit."
             )
-            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+            if is_officer(request.user):
+                return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+            return redirect('applicants:application_details', application_id=deficiency.application_id)
 
     DeficiencyRectification.objects.create(
         deficiency=deficiency,
@@ -1216,7 +1232,9 @@ def deficiency_rectify(request, deficiency_id):
     deficiency.save(update_fields=['status', 'updated_at'])
 
     messages.success(request, "Rectification submitted for verification.")
-    return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+    if is_officer(request.user):
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+    return redirect('applicants:application_details', application_id=deficiency.application_id)
 
 
 @officer_required

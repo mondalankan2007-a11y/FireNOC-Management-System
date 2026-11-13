@@ -2048,3 +2048,137 @@ class OfficerInspectionChecklistAndReportingTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         self.inspection.refresh_from_db()
         self.assertEqual(self.inspection.status, Inspection.STATUS_IN_PROGRESS)
+
+
+# ===========================================================================
+# Commit 11 Tests: Stabilize Deficiency and Rectification Workflow
+# ===========================================================================
+
+class OfficerDeficiencyAndRectificationWorkflowTests(TestCase):
+    def setUp(self):
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, _ = create_officer_user(
+            username='def_officer',
+            email='def_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-DEF-1',
+        )
+        self.applicant = User.objects.create_user(
+            username='def_applicant@firenoc.gov.in',
+            email='def_applicant@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.other_applicant = User.objects.create_user(
+            username='other_app@firenoc.gov.in',
+            email='other_app@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Deficiency Applicant',
+            email='def_applicant@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Deficiency Plaza',
+            building_type='COMMERCIAL',
+            building_address='99 Hazard Ave',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=5,
+            builtup_area='1600.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='UNDER_INSPECTION',
+        )
+        self.inspection = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer_user,
+            scheduled_date=datetime.date.today(),
+            scheduled_time=datetime.time(11, 0),
+            status=Inspection.STATUS_COMPLETED,
+        )
+        self.report = InspectionReport.objects.create(
+            inspection=self.inspection,
+            overall_result=InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+            general_observations='Blocked exit route.',
+            completed_at=timezone.now(),
+        )
+
+    def test_deficiency_creation_transitions_application_to_deficient(self):
+        self.client.login(username='def_officer', password=self.officer_password)
+        resp = self.client.post(
+            reverse('officers:deficiency_create', args=[self.inspection.pk]),
+            {
+                'title': 'Emergency door blocked',
+                'description': 'Heavy crates blocking exit path',
+                'severity': Deficiency.SEVERITY_MAJOR,
+                'officer_remarks': 'Must clear immediately',
+            }
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.app.refresh_from_db()
+        self.assertEqual(self.app.status, 'DEFICIENT')
+        deficiency = self.app.deficiencies.first()
+        self.assertIsNotNone(deficiency)
+        self.assertEqual(deficiency.status, Deficiency.STATUS_OPEN)
+
+    def test_applicant_can_submit_rectification_and_officer_review(self):
+        deficiency = Deficiency.objects.create(
+            application=self.app,
+            inspection=self.inspection,
+            reported_by=self.officer_user,
+            title='Corridor blocked',
+            description='Boxes in corridor',
+            severity=Deficiency.SEVERITY_MAJOR,
+            status=Deficiency.STATUS_OPEN,
+        )
+        # Unauthorized applicant cannot submit
+        self.client.login(username='other_app@firenoc.gov.in', password='ValidPass#2026')
+        resp_unauth = self.client.post(
+            reverse('officers:deficiency_rectify', args=[deficiency.pk]),
+            {'description': 'Cleared by stranger'}
+        )
+        self.assertEqual(resp_unauth.status_code, 302)
+        self.assertEqual(deficiency.rectifications.count(), 0)
+
+        # Authorized applicant submits rectification
+        self.client.login(username='def_applicant@firenoc.gov.in', password='ValidPass#2026')
+        resp_rect = self.client.post(
+            reverse('officers:deficiency_rectify', args=[deficiency.pk]),
+            {'description': 'All corridor boxes removed and cleaned.'}
+        )
+        self.assertEqual(resp_rect.status_code, 302)
+        deficiency.refresh_from_db()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_SUBMITTED)
+        self.assertEqual(deficiency.rectifications.count(), 1)
+
+        # Officer reviews and rejects first
+        self.client.login(username='def_officer', password=self.officer_password)
+        rect = deficiency.rectifications.first()
+        resp_rej = self.client.post(
+            reverse('officers:rectification_review', args=[deficiency.pk, rect.pk]),
+            {'action': 'REJECT', 'review_remarks': 'Photo missing'}
+        )
+        self.assertEqual(resp_rej.status_code, 302)
+        rect.refresh_from_db()
+        self.assertEqual(rect.status, DeficiencyRectification.STATUS_REJECTED)
+        deficiency.refresh_from_db()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_OPEN)
+
+        # Submit second rectification, then accept
+        self.client.login(username='def_applicant@firenoc.gov.in', password='ValidPass#2026')
+        self.client.post(
+            reverse('officers:deficiency_rectify', args=[deficiency.pk]),
+            {'description': 'Re-cleaned with photographic evidence.'}
+        )
+        rect2 = deficiency.rectifications.order_by('-pk').first()
+
+        self.client.login(username='def_officer', password=self.officer_password)
+        resp_acc = self.client.post(
+            reverse('officers:rectification_review', args=[deficiency.pk, rect2.pk]),
+            {'action': 'ACCEPT', 'review_remarks': 'Verified clean'}
+        )
+        self.assertEqual(resp_acc.status_code, 302)
+        deficiency.refresh_from_db()
+        self.assertEqual(deficiency.status, Deficiency.STATUS_VERIFIED)
