@@ -2400,3 +2400,98 @@ class OfficerRecommendationFinalizationTests(TestCase):
         # Blocked: redirected to officer login
         self.assertEqual(resp.status_code, 302)
         self.assertIn('officer/login', resp.url)
+
+
+# ===========================================================================
+# Commit 14 Tests: Integrate Officer Recommendation with NOC Workflow
+# ===========================================================================
+
+class AdminNocIntegrationTests(TestCase):
+    def setUp(self):
+        self.admin_user = User.objects.create_superuser(
+            username='admin_noc',
+            email='admin@firenoc.gov.in',
+            password='AdminPass#2026',
+        )
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, _ = create_officer_user(
+            username='noc_officer',
+            email='noc_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-NOC-1',
+        )
+        self.applicant = User.objects.create_user(
+            username='app_user@firenoc.gov.in',
+            email='app_user@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Admin NOC Applicant',
+            email='app_user@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Metropolis Complex',
+            building_type='COMMERCIAL',
+            building_address='100 Administrative Plaza',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=10,
+            builtup_area='4000.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='DOCUMENTS_VERIFIED',
+        )
+        doc = ApplicationDocument.objects.create(
+            application=self.app,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Floor Blueprints',
+            file=SimpleUploadedFile('blueprint.pdf', b'%PDF-1.4', content_type='application/pdf'),
+        )
+        DocumentVerification.objects.create(document=doc, status='VERIFIED', verified_by=self.officer_user)
+        self.insp = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer_user,
+            scheduled_date=datetime.date.today(),
+            scheduled_time=datetime.time(10, 0),
+            status=Inspection.STATUS_COMPLETED,
+        )
+        InspectionReport.objects.create(
+            inspection=self.insp,
+            overall_result=InspectionReport.RESULT_SATISFACTORY,
+            general_observations='Fire lines pressurized and compliant.',
+        )
+        self.review = ApplicationReview.objects.create(
+            application=self.app,
+            status='DOCUMENTS_VERIFIED',
+            recommendation=ApplicationReview.RECOMMENDATION_APPROVED,
+            recommendation_remarks='Fully compliant with NBC Part 4.',
+            recommended_by=self.officer_user,
+            recommended_at=timezone.now(),
+        )
+
+    def test_admin_can_view_application_with_officer_recommendation_and_reports(self):
+        self.client.login(username='admin_noc', password='AdminPass#2026')
+        admin_change_url = reverse('admin:applicants_application_change', args=[self.app.pk])
+        resp = self.client.get(admin_change_url)
+        self.assertEqual(resp.status_code, 200)
+
+        # Admin sees building and applicant details
+        self.assertContains(resp, 'Metropolis Complex')
+        self.assertContains(resp, 'Admin NOC Applicant')
+
+        # Admin sees officer recommendation and remarks
+        self.assertContains(resp, 'Recommended for Approval')
+        self.assertContains(resp, 'Fully compliant with NBC Part 4.')
+
+        # Admin sees inspection result and document audits
+        self.assertContains(resp, 'Satisfactory')
+        self.assertContains(resp, 'Floor Blueprints')
+
+    def test_admin_list_filter_for_ready_applications(self):
+        self.client.login(username='admin_noc', password='AdminPass#2026')
+        admin_list_url = reverse('admin:applicants_application_changelist')
+        resp = self.client.get(admin_list_url, {'final_review': 'ready'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Metropolis Complex')
