@@ -1735,3 +1735,114 @@ class OfficerEndToEndIntegrationTests(TestCase):
         application.refresh_from_db()
         review = application.officer_review
         self.assertEqual(review.recommendation, 'RECOMMENDED_FOR_APPROVAL')
+
+
+# ===========================================================================
+# Commit 8 Tests: Stabilize Officer Document Verification
+# ===========================================================================
+
+class OfficerDocumentVerificationStabilityTests(TestCase):
+    def setUp(self):
+        self.officer_password = 'OfficerPass#2026'
+        self.officer_user, _ = create_officer_user(
+            username='doc_officer',
+            email='doc_officer@firenoc.gov.in',
+            password=self.officer_password,
+            officer_id='FO-DOC-1',
+        )
+        self.applicant = User.objects.create_user(
+            username='doc_applicant@firenoc.gov.in',
+            email='doc_applicant@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.application = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Doc App User',
+            email='doc_applicant@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Doc Verification Tower',
+            building_type='COMMERCIAL',
+            building_address='10 Safety Rd',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=5,
+            builtup_area='1200.00',
+            year_construction=2020,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='PENDING',
+        )
+        self.doc1 = ApplicationDocument.objects.create(
+            application=self.application,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Architectural Plan',
+            file=SimpleUploadedFile('arch.pdf', b'%PDF-1.4 mock content', content_type='application/pdf'),
+        )
+        self.doc2 = ApplicationDocument.objects.create(
+            application=self.application,
+            document_type='FIRE_SAFETY_PLAN',
+            document_name='Fire Safety Plan',
+            file=SimpleUploadedFile('safety.pdf', b'%PDF-1.4 mock content', content_type='application/pdf'),
+        )
+
+    def test_rejection_requires_remarks_and_preserves_file(self):
+        self.client.login(username='doc_officer', password=self.officer_password)
+        # Attempt rejection without remarks
+        resp_no_rem = self.client.post(
+            reverse('officers:document_verify', args=[self.application.pk, self.doc1.pk]),
+            {'action': 'REJECT', 'officer_remarks': ''}
+        )
+        self.assertEqual(resp_no_rem.status_code, 302)
+        self.assertFalse(hasattr(self.doc1, 'verification'))
+
+        # Reject with remarks
+        resp_rej = self.client.post(
+            reverse('officers:document_verify', args=[self.application.pk, self.doc1.pk]),
+            {'action': 'REJECT', 'officer_remarks': 'Unclear stamp on floor 3'}
+        )
+        self.assertEqual(resp_rej.status_code, 302)
+        self.doc1.refresh_from_db()
+        self.assertEqual(self.doc1.verification.status, 'REJECTED')
+        self.assertTrue(bool(self.doc1.file))  # File preserved
+
+    def test_cannot_mark_documents_verified_with_unverified_or_rejected_docs(self):
+        self.client.login(username='doc_officer', password=self.officer_password)
+        # 1. Neither doc verified yet -> cannot advance to DOCUMENTS_VERIFIED
+        resp1 = self.client.post(
+            reverse('officers:application_review', args=[self.application.pk]),
+            {'verification_status': 'DOCUMENTS_VERIFIED', 'officer_remarks': 'Trying to verify early'}
+        )
+        self.assertEqual(resp1.status_code, 302)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, 'PENDING')
+
+        # 2. Verify doc1, reject doc2 -> cannot advance
+        self.client.post(
+            reverse('officers:document_verify', args=[self.application.pk, self.doc1.pk]),
+            {'action': 'VERIFY', 'officer_remarks': 'Approved'}
+        )
+        self.client.post(
+            reverse('officers:document_verify', args=[self.application.pk, self.doc2.pk]),
+            {'action': 'REJECT', 'officer_remarks': 'Signature missing'}
+        )
+        resp2 = self.client.post(
+            reverse('officers:application_review', args=[self.application.pk]),
+            {'verification_status': 'DOCUMENTS_VERIFIED', 'officer_remarks': 'Trying with rejected doc'}
+        )
+        self.assertEqual(resp2.status_code, 302)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, 'PENDING')
+
+        # 3. Now verify doc2 -> can advance
+        self.client.post(
+            reverse('officers:document_verify', args=[self.application.pk, self.doc2.pk]),
+            {'action': 'VERIFY', 'officer_remarks': 'Fixed and approved'}
+        )
+        resp3 = self.client.post(
+            reverse('officers:application_review', args=[self.application.pk]),
+            {'verification_status': 'DOCUMENTS_VERIFIED', 'officer_remarks': 'All verified'}
+        )
+        self.assertEqual(resp3.status_code, 302)
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, 'DOCUMENTS_VERIFIED')

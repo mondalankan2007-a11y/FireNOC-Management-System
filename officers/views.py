@@ -383,13 +383,29 @@ def application_review(request, app_id):
         messages.error(request, "Invalid application verification status specified.")
         return redirect('officers:application_detail', pk=app_id)
 
-    # Validate that no rejected documents exist before marking all documents verified
+    # Validate that documents exist and all are verified before marking application as Documents Verified
     if verification_status == 'DOCUMENTS_VERIFIED':
+        total_docs = application.documents.count()
+        if total_docs == 0:
+            messages.error(
+                request,
+                "Cannot mark application as 'Documents Verified': No supporting documents have been uploaded."
+            )
+            return redirect('officers:application_detail', pk=app_id)
+
         has_rejected = application.documents.filter(verification__status='REJECTED').exists()
         if has_rejected:
             messages.error(
                 request,
                 "Cannot mark application as 'Documents Verified': One or more required documents have been rejected."
+            )
+            return redirect('officers:application_detail', pk=app_id)
+
+        unverified_count = application.documents.exclude(verification__status='VERIFIED').count()
+        if unverified_count > 0:
+            messages.error(
+                request,
+                f"Cannot mark application as 'Documents Verified': {unverified_count} document(s) are still pending verification."
             )
             return redirect('officers:application_detail', pk=app_id)
 
