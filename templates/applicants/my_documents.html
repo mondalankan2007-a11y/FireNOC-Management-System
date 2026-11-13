@@ -47,13 +47,13 @@
                         <a class="nav-link active" href="{% url 'applicants:my_documents' %}">
                             <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
                         </a>
-                        <a class="nav-link" href="#inspection-details" data-bs-toggle="tooltip" title="Inspection reports and scheduled dates">
+                        <a class="nav-link" href="{% url 'applicants:my_applications' %}?status=UNDER_INSPECTION" data-bs-toggle="tooltip" title="Inspection reports and scheduled dates">
                             <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
                         </a>
-                        <a class="nav-link" href="#corrections" data-bs-toggle="tooltip" title="Outstanding deficiency rectification notices">
+                        <a class="nav-link" href="{% url 'applicants:my_applications' %}?status=DEFICIENT" data-bs-toggle="tooltip" title="Outstanding deficiency rectification notices">
                             <i class="bi bi-exclamation-triangle me-2"></i>Corrections
                         </a>
-                        <a class="nav-link" href="#my-nocs" data-bs-toggle="tooltip" title="Issued digital Fire NOC Certificates">
+                        <a class="nav-link" href="{% url 'applicants:my_applications' %}?status=APPROVED" data-bs-toggle="tooltip" title="Issued digital Fire NOC Certificates">
                             <i class="bi bi-award me-2"></i>My NOCs
                         </a>
                         <a class="nav-link" href="#profile" data-bs-toggle="tooltip" title="Manage personal and contact details">
