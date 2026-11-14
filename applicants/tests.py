@@ -1964,6 +1964,65 @@ class MyDocumentsListingViewTests(TestCase):
         self.assertNotContains(resp_filtered, 'Fire Safety Equipment Details - Sunrise Commercial Hub')
 
 
+class ApplicantOfficerIntegrationStabilizationTests(TestCase):
+    """
+    Integration test verifying that the merged Applicant module works seamlessly
+    with the Officer module, confirming all applicant views load and status
+    transitions are mutually visible.
+    """
+
+    def setUp(self):
+        from applicants.models import Application
+        self.applicant = User.objects.create_user(
+            username='integ_applicant@firenoc.gov.in',
+            email='integ_applicant@firenoc.gov.in',
+            password='ValidPassword#2026',
+            first_name='Integration',
+            last_name='Applicant',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant,
+            full_name='Integration Applicant',
+            email='integ_applicant@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Unified Tower',
+            building_type='COMMERCIAL',
+            building_address='100 Tech Park',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=8,
+            builtup_area='2500.00',
+            year_construction=2021,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            status='PENDING',
+        )
+
+    def test_all_applicant_views_load_successfully(self):
+        self.client.force_login(self.applicant)
+
+        # Dashboard
+        res = self.client.get(reverse('applicants:dashboard'))
+        self.assertEqual(res.status_code, 200)
+
+        # My Applications
+        res = self.client.get(reverse('applicants:my_applications'))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'Unified Tower')
+
+        # Application Details
+        res = self.client.get(reverse('applicants:application_details', kwargs={'application_id': self.app.id}))
+        self.assertEqual(res.status_code, 200)
+        self.assertContains(res, 'Unified Tower')
+
+        # Document Upload
+        res = self.client.get(reverse('applicants:document_upload', kwargs={'application_id': self.app.id}))
+        self.assertEqual(res.status_code, 200)
+
+        # My Documents
+        res = self.client.get(reverse('applicants:my_documents'))
+        self.assertEqual(res.status_code, 200)
 
 class InspectionDetailsViewTests(TestCase):
     """
@@ -2159,3 +2218,93 @@ class InspectionDetailsViewTests(TestCase):
         self.assertContains(response, 'Cancelled')
         self.assertContains(response, 'Cancelled due to officer unavailability.')
 
+# ===========================================================================
+# Commit 16 Tests: Complete Applicant FireNOC Status Flow
+# ===========================================================================
+
+class ApplicantFinalStatusLifecycleTests(TestCase):
+    def setUp(self):
+        from applicants.models import Application
+        self.applicant_a = User.objects.create_user(
+            username='user_a@firenoc.gov.in',
+            email='user_a@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.applicant_b = User.objects.create_user(
+            username='user_b@firenoc.gov.in',
+            email='user_b@firenoc.gov.in',
+            password='ValidPass#2026',
+        )
+        self.app = Application.objects.create(
+            applicant=self.applicant_a,
+            full_name='Applicant A',
+            email='user_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Sunrise Residency',
+            building_type='RESIDENTIAL',
+            building_address='12 Sunrise Road',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=6,
+            builtup_area='1500.00',
+            year_construction=2021,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            status='PENDING',
+        )
+
+    def test_applicant_sees_approved_noc_banner(self):
+        self.app.status = 'APPROVED'
+        self.app.save()
+
+        self.client.force_login(self.applicant_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Fire NOC Certificate Approved & Issued')
+        self.assertContains(resp, self.app.application_id)
+
+    def test_applicant_sees_rejection_reason_when_rejected(self):
+        self.app.status = 'REJECTED'
+        self.app.remarks = '[ADMIN FINAL REJECTION REASON]: Insufficient fire escape width.'
+        self.app.save()
+
+        self.client.force_login(self.applicant_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Application Rejected')
+        self.assertContains(resp, 'Insufficient fire escape width.')
+
+    def test_applicant_sees_officer_recommended_banner(self):
+        from officers.models import ApplicationReview
+        ApplicationReview.objects.create(
+            application=self.app,
+            status='DOCUMENTS_VERIFIED',
+            recommendation=ApplicationReview.RECOMMENDATION_APPROVED,
+        )
+        self.app.status = 'UNDER_INSPECTION'
+        self.app.save()
+
+        self.client.force_login(self.applicant_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Officer Recommendation: Recommended for Approval')
+
+    def test_applicant_sees_deficient_warning(self):
+        self.app.status = 'DEFICIENT'
+        self.app.save()
+
+        self.client.force_login(self.applicant_a)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Deficiencies Require Rectification')
+
+    def test_cross_applicant_isolation(self):
+        self.client.force_login(self.applicant_b)
+        url = reverse('applicants:application_details', kwargs={'application_id': self.app.id})
+        resp = self.client.get(url)
+        self.assertEqual(resp.status_code, 404)

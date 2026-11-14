@@ -525,7 +525,7 @@ def get_recommendation_eligibility(application):
         for d in docs
     )
     review_docs_verified = (
-        application.status in ('DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED')
+        application.status in ('DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED', 'DEFICIENT')
         or (review is not None and review.status == 'DOCUMENTS_VERIFIED')
     )
     docs_ok = (not has_rejected_doc) and all_docs_verified and review_docs_verified
@@ -533,7 +533,7 @@ def get_recommendation_eligibility(application):
     latest_inspection = (
         application.inspections
         .select_related('report')
-        .order_by('-created_at')
+        .order_by('-created_at', '-id')
         .first()
     )
     inspection_completed = (

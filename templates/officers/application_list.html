@@ -125,6 +125,8 @@
                                     <option value="PENDING" {% if status_filter == 'PENDING' %}selected{% endif %}>Pending Review</option>
                                     <option value="UNDER_REVIEW" {% if status_filter == 'UNDER_REVIEW' %}selected{% endif %}>Under Review</option>
                                     <option value="DOCUMENTS_VERIFIED" {% if status_filter == 'DOCUMENTS_VERIFIED' %}selected{% endif %}>Documents Verified</option>
+                                    <option value="UNDER_INSPECTION" {% if status_filter == 'UNDER_INSPECTION' %}selected{% endif %}>Under Inspection</option>
+                                    <option value="DEFICIENT" {% if status_filter == 'DEFICIENT' %}selected{% endif %}>Deficient</option>
                                     <option value="APPROVED" {% if status_filter == 'APPROVED' %}selected{% endif %}>Approved</option>
                                     <option value="REJECTED" {% if status_filter == 'REJECTED' %}selected{% endif %}>Rejected</option>
                                 </select>
@@ -221,6 +223,14 @@
                                                 {% elif item.application.status == 'DOCUMENTS_VERIFIED' %}
                                                     <span class="badge bg-info-subtle text-info border border-info-subtle">
                                                         <i class="bi bi-patch-check me-1"></i>Docs Verified
+                                                    </span>
+                                                {% elif item.application.status == 'UNDER_INSPECTION' %}
+                                                    <span class="badge bg-warning text-dark border">
+                                                        <i class="bi bi-clipboard-check me-1"></i>Under Inspection
+                                                    </span>
+                                                {% elif item.application.status == 'DEFICIENT' %}
+                                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                                        <i class="bi bi-exclamation-triangle me-1"></i>Deficient
                                                     </span>
                                                 {% elif item.application.status == 'APPROVED' %}
                                                     <span class="badge bg-success-subtle text-success border border-success-subtle">

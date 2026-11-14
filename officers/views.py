@@ -4,6 +4,7 @@ import os
 from django.apps import apps
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.db import models
 from django.shortcuts import render, redirect, get_object_or_404
@@ -176,7 +177,7 @@ def application_list(request):
 
     queryset = Application.objects.select_related('applicant').prefetch_related('documents__verification').all()
 
-    if status_filter in ['PENDING', 'UNDER_REVIEW', 'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED', 'REJECTED']:
+    if status_filter in ['PENDING', 'UNDER_REVIEW', 'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED', 'REJECTED', 'DEFICIENT']:
         queryset = queryset.filter(status=status_filter)
 
     if search_query:
@@ -383,13 +384,29 @@ def application_review(request, app_id):
         messages.error(request, "Invalid application verification status specified.")
         return redirect('officers:application_detail', pk=app_id)
 
-    # Validate that no rejected documents exist before marking all documents verified
+    # Validate that documents exist and all are verified before marking application as Documents Verified
     if verification_status == 'DOCUMENTS_VERIFIED':
+        total_docs = application.documents.count()
+        if total_docs == 0:
+            messages.error(
+                request,
+                "Cannot mark application as 'Documents Verified': No supporting documents have been uploaded."
+            )
+            return redirect('officers:application_detail', pk=app_id)
+
         has_rejected = application.documents.filter(verification__status='REJECTED').exists()
         if has_rejected:
             messages.error(
                 request,
                 "Cannot mark application as 'Documents Verified': One or more required documents have been rejected."
+            )
+            return redirect('officers:application_detail', pk=app_id)
+
+        unverified_count = application.documents.exclude(verification__status='VERIFIED').count()
+        if unverified_count > 0:
+            messages.error(
+                request,
+                f"Cannot mark application as 'Documents Verified': {unverified_count} document(s) are still pending verification."
             )
             return redirect('officers:application_detail', pk=app_id)
 
@@ -555,7 +572,7 @@ def officer_logout(request):
 CHECKLIST_ITEM_TYPES = [t[0] for t in InspectionChecklistItem.ITEM_TYPES]
 
 # Application statuses that make an application eligible for inspection scheduling
-INSPECTION_ELIGIBLE_STATUSES = {'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION'}
+INSPECTION_ELIGIBLE_STATUSES = {'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'DEFICIENT'}
 
 
 def _can_modify_inspection(user, inspection):
@@ -1092,6 +1109,9 @@ def deficiency_create(request, inspection_id):
             status=Deficiency.STATUS_OPEN,
             officer_remarks=officer_remarks,
         )
+        if inspection.application.status != 'DEFICIENT':
+            inspection.application.status = 'DEFICIENT'
+            inspection.application.save(update_fields=['status', 'updated_at'])
         messages.success(request, f"Deficiency DEF-{deficiency.pk} '{deficiency.title}' logged successfully.")
         return redirect('officers:deficiency_detail', deficiency_id=deficiency.pk)
 
@@ -1144,31 +1164,42 @@ def deficiency_detail(request, deficiency_id):
     return render(request, 'officers/deficiency_detail.html', context)
 
 
-@officer_required
+@login_required(login_url='login')
 def deficiency_rectify(request, deficiency_id):
     """
     Record a rectification submission for an Open deficiency and transition
     Deficiency: Open -> Submitted for Verification.
     Validates optional evidence file type and size.
+    Accessible to officers or the applicant owning the application.
     """
-    if request.method != 'POST':
-        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
-
     deficiency = get_object_or_404(Deficiency, pk=deficiency_id)
+
+    if not (is_officer(request.user) or request.user.is_superuser or request.user == deficiency.application.applicant):
+        messages.error(request, "You are not authorized to submit rectification for this application.")
+        return redirect('applicants:dashboard')
+
+    if request.method != 'POST':
+        if is_officer(request.user):
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        return redirect('applicants:application_details', application_id=deficiency.application_id)
 
     if deficiency.is_closed or not deficiency.can_transition_to(Deficiency.STATUS_SUBMITTED):
         messages.error(
             request,
             f"Cannot submit rectification: deficiency is currently '{deficiency.get_status_display()}'."
         )
-        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        if is_officer(request.user):
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        return redirect('applicants:application_details', application_id=deficiency.application_id)
 
     description = request.POST.get('description', '').strip()
     evidence_file = request.FILES.get('evidence_file')
 
     if not description:
         messages.error(request, "Rectification description is required.")
-        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        if is_officer(request.user):
+            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+        return redirect('applicants:application_details', application_id=deficiency.application_id)
 
     if evidence_file is not None:
         ext = os.path.splitext(evidence_file.name)[1].lower()
@@ -1177,13 +1208,17 @@ def deficiency_rectify(request, deficiency_id):
                 request,
                 "Invalid evidence file format. Allowed formats: PDF, JPG, JPEG, PNG."
             )
-            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+            if is_officer(request.user):
+                return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+            return redirect('applicants:application_details', application_id=deficiency.application_id)
         if evidence_file.size > MAX_EVIDENCE_SIZE_BYTES:
             messages.error(
                 request,
                 "Evidence file size exceeds the 5 MB limit."
             )
-            return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+            if is_officer(request.user):
+                return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+            return redirect('applicants:application_details', application_id=deficiency.application_id)
 
     DeficiencyRectification.objects.create(
         deficiency=deficiency,
@@ -1197,7 +1232,9 @@ def deficiency_rectify(request, deficiency_id):
     deficiency.save(update_fields=['status', 'updated_at'])
 
     messages.success(request, "Rectification submitted for verification.")
-    return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+    if is_officer(request.user):
+        return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)
+    return redirect('applicants:application_details', application_id=deficiency.application_id)
 
 
 @officer_required
@@ -1240,6 +1277,13 @@ def rectification_review(request, deficiency_id, rect_id):
         if review_remarks:
             deficiency.officer_remarks = review_remarks
         deficiency.save(update_fields=['status', 'officer_remarks', 'updated_at'])
+
+        has_unresolved = deficiency.application.deficiencies.exclude(
+            status__in=[Deficiency.STATUS_VERIFIED, Deficiency.STATUS_CLOSED]
+        ).exists()
+        if not has_unresolved and deficiency.application.status == 'DEFICIENT':
+            deficiency.application.status = 'UNDER_INSPECTION'
+            deficiency.application.save(update_fields=['status', 'updated_at'])
 
         messages.success(request, f"Rectification accepted. DEF-{deficiency.pk} is now Verified.")
 
@@ -1319,6 +1363,13 @@ def deficiency_close(request, deficiency_id):
     deficiency.resolved_at = timezone.now()
     deficiency.closed_by = request.user
     deficiency.save(update_fields=['status', 'resolved_at', 'closed_by', 'updated_at'])
+
+    has_unresolved = deficiency.application.deficiencies.exclude(
+        status__in=[Deficiency.STATUS_VERIFIED, Deficiency.STATUS_CLOSED]
+    ).exists()
+    if not has_unresolved and deficiency.application.status == 'DEFICIENT':
+        deficiency.application.status = 'UNDER_INSPECTION'
+        deficiency.application.save(update_fields=['status', 'updated_at'])
 
     messages.success(request, f"DEF-{deficiency.pk} has been closed and marked resolved.")
     return redirect('officers:deficiency_detail', deficiency_id=deficiency_id)

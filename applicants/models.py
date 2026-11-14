@@ -99,6 +99,14 @@ class Application(models.Model):
     def submission_date(self):
         return self.created_at.date()
 
+    def is_ready_for_officer_recommendation(self):
+        """
+        Evaluate whether this application has fulfilled all prerequisites
+        to be eligible for officer recommendation for approval.
+        """
+        from officers.models import get_recommendation_eligibility
+        return get_recommendation_eligibility(self)['is_eligible']
+
 
 class ApplicationDocument(models.Model):
     """
