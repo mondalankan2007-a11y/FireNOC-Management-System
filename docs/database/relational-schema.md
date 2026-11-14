@@ -528,6 +528,9 @@ below answers a query that exists in the view code; every constraint
 mirrors a rule the application layer already applies, so that the rule
 holds for writes that do not pass through it.
 
+[query-plans.md](query-plans.md) measures which of these indexes the
+PostgreSQL planner actually chooses, and what each one saves.
+
 ### Indexes
 
 | Table | Columns | Name |
