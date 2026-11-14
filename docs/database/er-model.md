@@ -259,9 +259,28 @@ original denormalized columns remain in place, so existing applicant and
 officer code is unaffected. The functional dependencies behind this
 decomposition are set out in [normalization.md](normalization.md).
 
-## 7. Entities still to be implemented
+## 7. Audit entity
+
+**AuditLog** records one action each: who did it, what kind of action it was,
+which record it concerned, and when. It is the trace the problem statement's
+"automatic system monitoring without any manual support" depends on.
+
+It stands apart from every other entity in this model because it holds no
+foreign key to its subject. An entry names the subject by type and identifier
+and keeps a text copy of how that subject identified itself, so the entry
+remains readable after the subject is deleted. `actor` is a real but nullable
+foreign key to `User`, paired with a text copy for the same reason.
+
+| Relationship | Cardinality | Participation |
+|---|---|---|
+| User → AuditLog (`actor`) | 1 : N | Partial — automated actions have no actor |
+| Any entity → AuditLog | none declared | Referenced by `entity_type` and `entity_id` only |
+
+Section 8 of [relational-schema.md](relational-schema.md) explains why the
+subject is not a foreign key and why the table is append-only.
+
+## 8. Entities still to be implemented
 
 | Entity | Why it is needed | Introduced in |
 |---|---|---|
 | **NOC** | The issued certificate has no table at all, so an approved application cannot record its certificate number, issue date or validity | NOC issuance work |
-| **AuditLog** | No table records who changed what, which the problem statement requires for monitoring | Audit work |

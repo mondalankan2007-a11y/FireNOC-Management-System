@@ -1,11 +1,12 @@
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from applicants.models import Application
 
-from .models import ApplicantProfile, Building, PinCode
+from .models import ApplicantProfile, AuditLog, Building, PinCode
 
 
 def make_application(user, **overrides):
@@ -225,3 +226,140 @@ class SyncSideEffectTests(TestCase):
         self.assertEqual(application.building_address, '12 MI Road')
         self.assertEqual(application.city, 'Jaipur')
         self.assertEqual(application.full_name, 'Harsh Kothari')
+
+
+class AuditLogRecordingTests(TestCase):
+    """AuditLog.record is the single entry point later work will call."""
+
+    def setUp(self):
+        self.officer = User.objects.create_user(
+            'officer1', 'o1@example.com', 'pw',
+            first_name='Aditya', last_name='Shekhawat')
+        self.applicant = User.objects.create_user('applicant9', 'a9@example.com', 'pw')
+
+    def test_records_actor_action_and_entity(self):
+        entry = AuditLog.record(
+            AuditLog.ACTION_APPROVE, AuditLog.ENTITY_APPLICATION,
+            actor=self.officer, entity_id=42, entity_label='NOC-2026-0042',
+            summary='Application approved after inspection')
+
+        self.assertEqual(entry.actor, self.officer)
+        self.assertEqual(entry.action, 'APPROVE')
+        self.assertEqual(entry.entity_type, 'APPLICATION')
+        self.assertEqual(entry.entity_id, 42)
+        self.assertEqual(entry.summary, 'Application approved after inspection')
+
+    def test_actor_label_uses_the_full_name(self):
+        entry = AuditLog.record(
+            AuditLog.ACTION_LOGIN, AuditLog.ENTITY_SYSTEM, actor=self.officer)
+
+        self.assertEqual(entry.actor_label, 'Aditya Shekhawat')
+
+    def test_actor_label_falls_back_to_the_username(self):
+        entry = AuditLog.record(
+            AuditLog.ACTION_LOGIN, AuditLog.ENTITY_SYSTEM, actor=self.applicant)
+
+        self.assertEqual(entry.actor_label, 'applicant9')
+
+    def test_automated_action_has_no_actor(self):
+        entry = AuditLog.record(
+            AuditLog.ACTION_STATUS_CHANGE, AuditLog.ENTITY_APPLICATION,
+            entity_id=7, summary='Escalated by the monitoring command')
+
+        self.assertIsNone(entry.actor)
+        self.assertEqual(entry.actor_label, '')
+
+    def test_passing_an_entity_fills_id_and_label(self):
+        application = make_application(self.applicant)
+
+        entry = AuditLog.record(
+            AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+            actor=self.applicant, entity=application, summary='Application submitted')
+
+        self.assertEqual(entry.entity_id, application.pk)
+        self.assertIn(application.application_id, entry.entity_label)
+
+    def test_changes_round_trip_as_structured_data(self):
+        entry = AuditLog.record(
+            AuditLog.ACTION_STATUS_CHANGE, AuditLog.ENTITY_APPLICATION,
+            entity_id=3,
+            changes={'status': {'from': 'PENDING', 'to': 'UNDER_REVIEW'}})
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.changes['status']['to'], 'UNDER_REVIEW')
+
+    def test_overlong_label_and_summary_are_truncated_not_rejected(self):
+        entry = AuditLog.record(
+            AuditLog.ACTION_UPDATE, AuditLog.ENTITY_BUILDING,
+            entity_id=1, entity_label='B' * 400, summary='S' * 400)
+
+        self.assertEqual(len(entry.entity_label), 150)
+        self.assertEqual(len(entry.summary), 255)
+
+    def test_newest_entry_comes_first(self):
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                        entity_id=1, summary='first')
+        AuditLog.record(AuditLog.ACTION_APPROVE, AuditLog.ENTITY_APPLICATION,
+                        entity_id=1, summary='second')
+
+        self.assertEqual(AuditLog.objects.first().summary, 'second')
+
+
+class AuditLogDurabilityTests(TestCase):
+    """
+    An audit entry is evidence: it must outlive both its subject and its
+    actor, and it must not be editable after the fact.
+    """
+
+    def setUp(self):
+        self.officer = User.objects.create_user(
+            'officer2', 'o2@example.com', 'pw', first_name='Fire', last_name='Officer')
+
+    def test_entry_cannot_be_modified(self):
+        entry = AuditLog.record(
+            AuditLog.ACTION_APPROVE, AuditLog.ENTITY_APPLICATION,
+            actor=self.officer, entity_id=5, summary='Approved')
+
+        entry.summary = 'Rewritten after the fact'
+        with self.assertRaises(ValueError):
+            entry.save()
+
+        entry.refresh_from_db()
+        self.assertEqual(entry.summary, 'Approved')
+
+    def test_entry_survives_deletion_of_its_actor(self):
+        AuditLog.record(AuditLog.ACTION_APPROVE, AuditLog.ENTITY_APPLICATION,
+                        actor=self.officer, entity_id=5, summary='Approved')
+
+        self.officer.delete()
+
+        entry = AuditLog.objects.get()
+        self.assertIsNone(entry.actor)
+        self.assertEqual(entry.actor_label, 'Fire Officer')
+
+    def test_entry_survives_deletion_of_its_subject(self):
+        applicant = User.objects.create_user('applicant10', 'a10@example.com', 'pw')
+        application = make_application(applicant)
+        label = application.application_id
+
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                        entity=application, summary='Submitted')
+        application.delete()
+
+        entry = AuditLog.objects.get()
+        self.assertIn(label, entry.entity_label)
+        self.assertEqual(Application.objects.count(), 0)
+
+    def test_database_rejects_a_zero_entity_id(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                AuditLog.objects.create(
+                    action=AuditLog.ACTION_UPDATE,
+                    entity_type=AuditLog.ENTITY_APPLICATION,
+                    entity_id=0, summary='Invalid subject')
+
+    def test_null_entity_id_is_allowed_for_system_events(self):
+        entry = AuditLog.record(
+            AuditLog.ACTION_LOGIN, AuditLog.ENTITY_SYSTEM, actor=self.officer)
+
+        self.assertIsNone(entry.entity_id)

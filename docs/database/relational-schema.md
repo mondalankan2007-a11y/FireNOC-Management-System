@@ -27,15 +27,20 @@ migrations produce rather than a separate script to run.
 | `officers_deficiency` | Safety shortcomings | `applicants_application`, `officers_inspection`, `auth_user` |
 | `officers_deficiencyrectification` | Fix evidence | `officers_deficiency`, `auth_user` |
 
+| Added by the admin module | Rows represent | Described in |
+|---|---|---|
+| `adminpanel_pincode` | Postal codes | [section 7](#7-normalized-tables) |
+| `adminpanel_applicantprofile` | Applicant contact details | [section 7](#7-normalized-tables) |
+| `adminpanel_building` | Physical buildings | [section 7](#7-normalized-tables) |
+| `adminpanel_auditlog` | Recorded actions | [section 8](#8-audit-table) |
+
 Django's own framework tables (`django_migrations`, `django_session`,
 `django_content_type`, `auth_permission`, `auth_group`, and the two user
 join tables) are created by the framework and are not described here.
 
-Three further tables — `adminpanel_pincode`, `adminpanel_applicantprofile` and
-`adminpanel_building` — were added by the normalization work and are described
-separately in [section 7](#7-normalized-tables). Sections 2 to 6 below describe
-the eleven tables listed above, which is the schema those sections were
-measured against.
+Sections 2 to 6 below describe the eleven original tables, which is the schema
+those sections were measured against. The four tables added by the admin module
+are described in sections 7 and 8.
 
 ---
 
@@ -453,3 +458,57 @@ level rather than relying on application-layer validation: one composite
 rejecting a non-positive floor count or built-up area. `pin_code_id` uses
 `ON DELETE PROTECT`, so a postal code that buildings reference cannot be
 deleted.
+
+---
+
+## 8. Audit table
+
+The problem statement requires the department to monitor the NOC workflow
+without manual support. That needs a durable record of every state change, and
+no such record existed: Django's own `django_admin_log` covers only edits made
+through the Django admin site, which is not where this workflow happens.
+
+### `adminpanel_auditlog`
+
+One recorded action: who did what, to which record, and when.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | bigserial | PRIMARY KEY, NOT NULL |
+| `actor_id` | integer | REFERENCES `auth_user` ON DELETE SET NULL, NULL |
+| `actor_label` | varchar(150) | NOT NULL |
+| `action` | varchar(30) | NOT NULL, 10 allowed values |
+| `entity_type` | varchar(30) | NOT NULL, 9 allowed values |
+| `entity_id` | bigint | NULL |
+| `entity_label` | varchar(150) | NOT NULL |
+| `summary` | varchar(255) | NOT NULL |
+| `changes` | jsonb | NOT NULL |
+| `ip_address` | inet | NULL |
+| `created_at` | timestamptz | NOT NULL |
+
+- INDEX (`entity_type`, `entity_id`) — `audit_entity_idx`
+- INDEX (`actor_id`, `created_at` DESC) — `audit_actor_time_idx`
+- INDEX (`action`, `created_at` DESC) — `audit_action_time_idx`
+- CHECK (entity_id IS NULL OR entity_id > 0) — `audit_entity_id_positive_or_null`
+- Default ordering: `-created_at`, `-pk`
+
+Three aspects of this table are deliberate and worth stating.
+
+**The subject is not a foreign key.** An entry names its subject with
+`entity_type` and `entity_id` rather than referencing it. A foreign key would
+either prevent the subject from ever being deleted, or with `ON DELETE SET NULL`
+would empty the audit trail at the moment it matters most. `entity_label` keeps
+a human-readable copy, so an entry still reads as
+`NOC-2026-0042 approved by Aditya Shekhawat` after the application is gone.
+
+**The actor is recorded twice.** `actor_id` is a real foreign key, so the
+department can join to the current account; `actor_label` is plain text, so the
+entry survives that account being deleted.
+
+**The table is append-only.** `AuditLog.save()` refuses to update an existing
+row. An audit trail that can be edited after the fact is not evidence.
+
+This is also the first table in the schema with indexes chosen for queries
+rather than inherited from constraints. The three composite indexes answer the
+three questions the admin module will ask of it: what happened to this record,
+what did this officer do, and what happened recently.
