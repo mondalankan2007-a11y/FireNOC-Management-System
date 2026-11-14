@@ -74,6 +74,27 @@ class Application(models.Model):
     purpose = models.TextField(max_length=1000)
     remarks = models.TextField(max_length=2000, blank=True, default='')
 
+    # Section D: Normalized References (Admin + Database module)
+    # Nullable while both representations coexist: the denormalized columns
+    # above stay populated and remain the source of truth for existing
+    # applicant and officer code, while new work reads these instead.
+    applicant_profile = models.ForeignKey(
+        'adminpanel.ApplicantProfile',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='applications',
+        help_text="Normalized applicant record; see docs/database/normalization.md"
+    )
+    building = models.ForeignKey(
+        'adminpanel.Building',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='applications',
+        help_text="Normalized building record; see docs/database/normalization.md"
+    )
+
     # Lifecycle Status
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='PENDING')
     created_at = models.DateTimeField(auto_now_add=True)

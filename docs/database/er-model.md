@@ -210,18 +210,58 @@ the same safety item twice.
 
 ---
 
-## 6. Entities planned but not yet implemented
+## 6. Normalized entities
 
-The model above is incomplete with respect to the project's scope. Three
-entities are added by later work in the Admin, Database and NOC module:
+Three further entities exist alongside the eleven above, added to resolve the
+third-normal-form violations in `Application`:
+
+| Entity | Resolves | Relationship |
+|---|---|---|
+| **PinCode** | `pin_code → city, state` | 1 : N with Building |
+| **ApplicantProfile** | applicant name and mobile repeated per application | 1 : 1 with User, 1 : N with Application |
+| **Building** | nine building columns repeated on every renewal | 1 : N with Application |
+
+```mermaid
+erDiagram
+    PIN_CODE ||--o{ BUILDING : "locates"
+    USER ||--o| APPLICANT_PROFILE : "is detailed by"
+    BUILDING ||--o{ APPLICATION : "is the subject of"
+    APPLICANT_PROFILE ||--o{ APPLICATION : "files"
+
+    PIN_CODE {
+        varchar pin_code PK
+        varchar city
+        varchar state
+    }
+    APPLICANT_PROFILE {
+        bigint id PK
+        int user_id FK "UNIQUE"
+        varchar full_name
+        varchar mobile_number
+    }
+    BUILDING {
+        bigint id PK
+        varchar name
+        text address
+        varchar pin_code_id FK
+        int num_floors
+        decimal builtup_area
+    }
+    APPLICATION {
+        bigint id PK
+        bigint applicant_profile_id FK "NULL"
+        bigint building_id FK "NULL"
+    }
+```
+
+`Application` holds both references as **nullable** foreign keys while the
+original denormalized columns remain in place, so existing applicant and
+officer code is unaffected. The functional dependencies behind this
+decomposition are set out in [normalization.md](normalization.md).
+
+## 7. Entities still to be implemented
 
 | Entity | Why it is needed | Introduced in |
 |---|---|---|
-| **Building** | `Application` currently stores nine building columns inline, so a renewal duplicates every one of them | Normalization work |
-| **ApplicantProfile** | Applicant name and mobile are repeated on every application rather than held once per person | Normalization work |
-| **PinCode** | `pin_code` determines `city` and `state`, which are currently stored once per application | Normalization work |
 | **NOC** | The issued certificate has no table at all, so an approved application cannot record its certificate number, issue date or validity | NOC issuance work |
 | **AuditLog** | No table records who changed what, which the problem statement requires for monitoring | Audit work |
-
-The reasoning behind these entities, and the functional dependencies that
-require them, is set out in [normalization.md](normalization.md).

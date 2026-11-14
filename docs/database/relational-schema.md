@@ -31,6 +31,12 @@ Django's own framework tables (`django_migrations`, `django_session`,
 `django_content_type`, `auth_permission`, `auth_group`, and the two user
 join tables) are created by the framework and are not described here.
 
+Three further tables — `adminpanel_pincode`, `adminpanel_applicantprofile` and
+`adminpanel_building` — were added by the normalization work and are described
+separately in [section 7](#7-normalized-tables). Sections 2 to 6 below describe
+the eleven tables listed above, which is the schema those sections were
+measured against.
+
 ---
 
 ## 2. Table definitions
@@ -97,6 +103,8 @@ One request for a Fire NOC, covering one building.
 | `application_type` | varchar(20) | NOT NULL, 2 allowed values |
 | `purpose` | text | NOT NULL |
 | `remarks` | text | NOT NULL |
+| `applicant_profile_id` | bigint | REFERENCES `adminpanel_applicantprofile` ON DELETE SET NULL, NULL |
+| `building_id` | bigint | REFERENCES `adminpanel_building` ON DELETE SET NULL, NULL |
 | `status` | varchar(30) | NOT NULL, 7 allowed values |
 | `created_at` | timestamptz | NOT NULL |
 | `updated_at` | timestamptz | NOT NULL |
@@ -321,7 +329,7 @@ development dataset the difference is invisible.
 
 ## 5. Declarative constraints
 
-| Constraint kind | Count in schema |
+| Constraint kind | Count across the eleven tables above |
 |---|---|
 | `PRIMARY KEY` | 11 (one per table) |
 | `FOREIGN KEY` | 19 |
@@ -331,7 +339,8 @@ development dataset the difference is invisible.
 | `CHECK` | **0** |
 | Database-level `UniqueConstraint` | **0** |
 
-The schema currently has no `CHECK` constraints. Every rule beyond "this column
+These eleven tables have no `CHECK` constraints. (The three normalized tables
+in section 7 do declare them, which is why the counts here are scoped.) Every rule beyond "this column
 must not be null" is enforced only in Python: status values are validated by
 Django `choices`, which generates no database constraint, and numeric fields
 such as `num_floors` and `builtup_area` accept any value the application layer
@@ -371,3 +380,76 @@ depends on.
 been issued. The applicant-facing timeline already looks for `NOC_ISSUED`, but
 that value is not in the column's allowed set and no table records an issued
 certificate. Both are addressed by the NOC issuance work in this module.
+
+---
+
+## 7. Normalized tables
+
+These three tables implement the decomposition specified in
+[normalization.md](normalization.md). They resolve the three third-normal-form
+violations in `applicants_application`: `PinCode` resolves V1, `ApplicantProfile`
+resolves V2 and `Building` resolves V3.
+
+`applicants_application` gains two nullable foreign keys, `applicant_profile_id`
+and `building_id`. They are nullable because the original denormalized columns
+remain in place and populated: existing applicant and officer code continues to
+read them, while new work reads through these references instead. Section 7 of
+the normalization document explains why the old columns are not dropped.
+
+### `adminpanel_pincode`
+
+A postal code with the city and state it belongs to.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `pin_code` | varchar(10) | PRIMARY KEY, NOT NULL |
+| `city` | varchar(100) | NOT NULL |
+| `state` | varchar(100) | NOT NULL |
+
+- Default ordering: `pin_code`
+
+### `adminpanel_applicantprofile`
+
+Contact details of an applicant, held once per person.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | bigserial | PRIMARY KEY, NOT NULL |
+| `user_id` | integer | REFERENCES `auth_user` ON DELETE CASCADE, UNIQUE, NOT NULL |
+| `full_name` | varchar(150) | NOT NULL |
+| `mobile_number` | varchar(15) | NOT NULL |
+| `created_at` | timestamptz | NOT NULL |
+| `updated_at` | timestamptz | NOT NULL |
+
+- Default ordering: `full_name`
+
+### `adminpanel_building`
+
+A physical building that applications are filed against.
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | bigserial | PRIMARY KEY, NOT NULL |
+| `name` | varchar(150) | NOT NULL |
+| `address` | text | NOT NULL |
+| `pin_code_id` | varchar(10) | REFERENCES `adminpanel_pincode` ON DELETE PROTECT, NOT NULL |
+| `building_type` | varchar(50) | NOT NULL, 7 allowed values |
+| `building_type_other` | varchar(100) | NOT NULL |
+| `num_floors` | integer | NOT NULL, CHECK >= 0 |
+| `builtup_area` | numeric(10,2) | NOT NULL |
+| `year_construction` | integer | NOT NULL, CHECK >= 0 |
+| `occupancy_type` | varchar(50) | NOT NULL, 8 allowed values |
+| `created_at` | timestamptz | NOT NULL |
+| `updated_at` | timestamptz | NOT NULL |
+
+- UNIQUE (`address`, `pin_code_id`) — `unique_building_address_pin_code`
+- CHECK (num_floors > 0) — `building_num_floors_positive`
+- CHECK (builtup_area > 0) — `building_builtup_area_positive`
+- Default ordering: `name`
+
+Unlike the eleven tables above, these three declare constraints at the database
+level rather than relying on application-layer validation: one composite
+`UNIQUE` making a building unique by address, and two `CHECK` constraints
+rejecting a non-positive floor count or built-up area. `pin_code_id` uses
+`ON DELETE PROTECT`, so a postal code that buildings reference cannot be
+deleted.
