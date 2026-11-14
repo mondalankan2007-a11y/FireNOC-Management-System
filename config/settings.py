@@ -91,19 +91,39 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 
 # Database Configuration
-# Configured for PostgreSQL using environment variables (.env)
+# PostgreSQL is the database for this project. Connection details are read from
+# the environment (.env) so that credentials never enter version control and the
+# same code runs unchanged on every developer machine.
+#
+# A developer who has not installed PostgreSQL locally can fall back to SQLite by
+# setting DB_ENGINE=django.db.backends.sqlite3 in their own .env file. No source
+# change is required to switch engines.
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
-        'NAME': os.getenv('DB_NAME', 'firenoc_db'),
-        'USER': os.getenv('DB_USER', 'postgres'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'postgres'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
+DB_ENGINE = os.getenv('DB_ENGINE', 'django.db.backends.postgresql')
+
+if DB_ENGINE == 'django.db.backends.sqlite3':
+    # Local development fallback: a single file, no server required
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': BASE_DIR / os.getenv('DB_NAME', 'db.sqlite3'),
+        }
     }
-}
+else:
+    # Project default: PostgreSQL
+    DATABASES = {
+        'default': {
+            'ENGINE': DB_ENGINE,
+            'NAME': os.getenv('DB_NAME', 'firenoc_db'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', 'postgres'),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            # Reuse connections instead of reconnecting on every request
+            'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+        }
+    }
 
 
 # Password validation
