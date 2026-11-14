@@ -329,6 +329,30 @@ asserting on them. The decomposition is therefore applied **additively**:
    migration, de-duplicating buildings by `(address, pin_code)`.
 3. Leave the original columns on `Application` in place and populated.
 
+The backfill reconciles rather than copies, because the existing rows were
+written by a form that never required them to agree with one another. Three
+rules apply, each stated in the migration itself:
+
+- **Most recent wins.** Where applications disagree about the same postal code,
+  building or applicant, the newest application's values are kept.
+- **Keys match loosely, values store verbatim.** Addresses and postal codes are
+  compared with whitespace collapsed and case ignored, so `12 MI Road` and
+  `12  mi road` resolve to one building; the row keeps the newest spelling.
+- **Unusable rows are skipped, not repaired.** `Application` permits
+  `num_floors` and `builtup_area` of zero and `Building` forbids both, so such
+  an application keeps its denormalized columns and its `building_id` stays
+  null. Inventing a plausible floor count would corrupt the record silently.
+
+The migration is reversible: unapplying it unlinks the applications and empties
+the three tables, which is safe because the preceding migration created them
+empty and the denormalized columns are never modified.
+
+**Known gap.** The backfill populates the normalized tables from data that
+exists when it runs. Nothing yet keeps them in step with applications submitted
+afterwards, because the applicant module writes only the denormalized columns.
+Until the admin screens write through these tables, a new application will have
+`building_id` and `applicant_profile_id` null.
+
 The original columns are not dropped. Dropping them would break working code in
 two modules this module does not own, for no benefit the project can collect
 before submission. The normalized tables become the authoritative source for new
