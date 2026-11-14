@@ -2,7 +2,8 @@
 
 Physical table definitions for the FireNOC Management System as currently
 implemented. The conceptual model behind these tables, including cardinalities
-and participation, is in [er-model.md](er-model.md).
+and participation, is in [er-model.md](er-model.md); the normal-form analysis of
+these same tables is in [normalization.md](normalization.md).
 
 Types are given as PostgreSQL types. The schema is created and maintained by
 Django migrations, not by hand-written DDL, so this document describes what the

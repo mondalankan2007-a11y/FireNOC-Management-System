@@ -217,10 +217,11 @@ entities are added by later work in the Admin, Database and NOC module:
 
 | Entity | Why it is needed | Introduced in |
 |---|---|---|
-| **Building** | `Application` currently stores eleven building columns inline, so a renewal duplicates every one of them | Normalization work |
-| **ApplicantProfile** | Applicant name, email and mobile are repeated on every application rather than held once per person | Normalization work |
+| **Building** | `Application` currently stores nine building columns inline, so a renewal duplicates every one of them | Normalization work |
+| **ApplicantProfile** | Applicant name and mobile are repeated on every application rather than held once per person | Normalization work |
+| **PinCode** | `pin_code` determines `city` and `state`, which are currently stored once per application | Normalization work |
 | **NOC** | The issued certificate has no table at all, so an approved application cannot record its certificate number, issue date or validity | NOC issuance work |
 | **AuditLog** | No table records who changed what, which the problem statement requires for monitoring | Audit work |
 
-The reasoning behind `Building` and `ApplicantProfile` is set out in the
-normalization analysis that accompanies this document.
+The reasoning behind these entities, and the functional dependencies that
+require them, is set out in [normalization.md](normalization.md).
