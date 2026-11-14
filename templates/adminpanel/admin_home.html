@@ -1,84 +1,97 @@
-{% extends 'base.html' %}
+{% extends 'adminpanel/base_admin.html' %}
 {% load static %}
 
-{% block title %}Admin Portal | FireNOC Management System{% endblock %}
+{% block page_title %}Admin Portal{% endblock %}
 
-{% block content %}
-<div class="container-fluid px-lg-4 py-2">
-    <!-- Breadcrumb Navigation -->
-    <nav aria-label="breadcrumb" class="mb-3">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
-            <li class="breadcrumb-item active" aria-current="page">Admin Portal</li>
-        </ol>
-    </nav>
+{% block admin_page_heading %}Admin, Database &amp; NOC Module{% endblock %}
+{% block admin_page_subtitle %}
+    Departmental control room for system administration, database oversight,
+    NOC certificate issuance and audit reporting.
+{% endblock %}
 
-    <!-- Module Header -->
-    <div class="card border-0 shadow-sm mb-4">
-        <div class="card-body p-4">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="display-6 text-danger mb-0">
-                        <i class="bi bi-award"></i>
-                    </div>
-                    <div>
-                        <h4 class="fw-bold mb-1">Admin, Database &amp; NOC Module</h4>
-                        <p class="text-muted mb-0">
-                            Departmental control room for system administration, database oversight,
-                            NOC certificate issuance and audit reporting.
-                        </p>
-                    </div>
-                </div>
-                <span class="badge bg-danger-subtle text-danger border border-danger-subtle badge-role">
-                    <i class="bi bi-gear me-1"></i>Administration
-                </span>
+{% block admin_content %}
+<!-- Module Capability Overview -->
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card h-100 shadow-sm border-0 card-module">
+            <div class="card-body p-4">
+                <div class="h4 text-danger mb-3"><i class="bi bi-speedometer2"></i></div>
+                <h6 class="fw-bold">Department Dashboard</h6>
+                <p class="card-text text-muted small mb-0">
+                    Live system statistics across applications, officers, inspections and issued certificates.
+                </p>
             </div>
         </div>
     </div>
+    <div class="col-md-6">
+        <div class="card h-100 shadow-sm border-0 card-module">
+            <div class="card-body p-4">
+                <div class="h4 text-danger mb-3"><i class="bi bi-people"></i></div>
+                <h6 class="fw-bold">User &amp; Officer Management</h6>
+                <p class="card-text text-muted small mb-0">
+                    Registered applicant records, fire officer onboarding, and inspection assignment.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100 shadow-sm border-0 card-module">
+            <div class="card-body p-4">
+                <div class="h4 text-danger mb-3"><i class="bi bi-patch-check"></i></div>
+                <h6 class="fw-bold">NOC Issuance</h6>
+                <p class="card-text text-muted small mb-0">
+                    Final approval authority, certificate generation, validity tracking and verification.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100 shadow-sm border-0 card-module">
+            <div class="card-body p-4">
+                <div class="h4 text-danger mb-3"><i class="bi bi-graph-up-arrow"></i></div>
+                <h6 class="fw-bold">Reports &amp; Audit</h6>
+                <p class="card-text text-muted small mb-0">
+                    Statistical reports, monitoring of pending actions, and system-wide audit logging.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
 
-    <!-- Module Capability Overview -->
-    <div class="row g-4">
-        <div class="col-md-6 col-xl-3">
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-body p-4">
-                    <div class="h4 text-danger mb-3"><i class="bi bi-speedometer2"></i></div>
-                    <h6 class="fw-bold">Department Dashboard</h6>
-                    <p class="card-text text-muted small mb-0">
-                        Live system statistics across applications, officers, inspections and issued certificates.
-                    </p>
+<!-- Position Of This Module In The NOC Workflow -->
+<div class="card border-0 shadow-sm mt-4">
+    <div class="card-body p-4">
+        <h5 class="fw-bold mb-3">
+            <i class="bi bi-diagram-3 text-danger me-2"></i>Where Administration Sits In The Workflow
+        </h5>
+        <p class="text-muted small">
+            An application reaches this module only after the applicant has submitted it and a
+            fire officer has completed verification and inspection. Administration holds the
+            final decision and is the only stage permitted to issue a Fire NOC.
+        </p>
+        <div class="row text-center g-3 pt-1">
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded h-100">
+                    <div class="text-muted small text-uppercase fw-semibold mb-1">Applicant</div>
+                    <div class="small text-muted">Submits application and documents</div>
                 </div>
             </div>
-        </div>
-        <div class="col-md-6 col-xl-3">
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-body p-4">
-                    <div class="h4 text-danger mb-3"><i class="bi bi-people"></i></div>
-                    <h6 class="fw-bold">User &amp; Officer Management</h6>
-                    <p class="card-text text-muted small mb-0">
-                        Registered applicant records, fire officer onboarding, and inspection assignment.
-                    </p>
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded h-100">
+                    <div class="text-muted small text-uppercase fw-semibold mb-1">Fire Officer</div>
+                    <div class="small text-muted">Verifies, inspects and recommends</div>
                 </div>
             </div>
-        </div>
-        <div class="col-md-6 col-xl-3">
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-body p-4">
-                    <div class="h4 text-danger mb-3"><i class="bi bi-patch-check"></i></div>
-                    <h6 class="fw-bold">NOC Issuance</h6>
-                    <p class="card-text text-muted small mb-0">
-                        Final approval authority, certificate generation, validity tracking and verification.
-                    </p>
+            <div class="col-md-3">
+                <div class="p-3 bg-danger-subtle rounded h-100 border border-danger-subtle">
+                    <div class="text-danger small text-uppercase fw-semibold mb-1">Admin Decision</div>
+                    <div class="small text-danger-emphasis">Approves and issues the NOC</div>
                 </div>
             </div>
-        </div>
-        <div class="col-md-6 col-xl-3">
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-body p-4">
-                    <div class="h4 text-danger mb-3"><i class="bi bi-graph-up-arrow"></i></div>
-                    <h6 class="fw-bold">Reports &amp; Audit</h6>
-                    <p class="card-text text-muted small mb-0">
-                        Statistical reports, monitoring of pending actions, and system-wide audit logging.
-                    </p>
+            <div class="col-md-3">
+                <div class="p-3 bg-light rounded h-100">
+                    <div class="text-muted small text-uppercase fw-semibold mb-1">Certificate</div>
+                    <div class="small text-muted">Issued, verifiable and tracked</div>
                 </div>
             </div>
         </div>

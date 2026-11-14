@@ -1,0 +1,155 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% comment %}
+Shared layout for every page in the Admin + Database + NOC module.
+
+Each admin page extends this template instead of base.html directly, so the
+department sidebar, breadcrumb trail and page heading are defined once here
+rather than repeated per page. Child templates fill in:
+
+    page_title          - browser tab title for the page
+    breadcrumb          - trailing breadcrumb entries after "Home"
+    admin_page_heading  - heading shown above the page body
+    admin_page_subtitle - supporting line under the heading
+    admin_content       - the page body itself
+{% endcomment %}
+
+{% block title %}{% block page_title %}Admin Portal{% endblock %} | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            {% block breadcrumb %}
+            <li class="breadcrumb-item active" aria-current="page">Admin Portal</li>
+            {% endblock %}
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Administration Sidebar (Column 1) -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <!-- Administrator Profile Header -->
+                <div class="dashboard-user-profile text-center" style="background: linear-gradient(135deg, #0b2545 0%, #040e1b 100%); border-bottom: 3px solid #dc2626;">
+                    <div class="dashboard-user-avatar mx-auto mb-2" style="background-color: rgba(220, 38, 38, 0.2); border-color: rgba(220, 38, 38, 0.5); color: #f87171;">
+                        <i class="bi bi-gear-fill"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">
+                        {% if user.is_authenticated %}{{ user.get_full_name|default:user.username }}{% else %}Administrator{% endif %}
+                    </h5>
+                    <small class="text-white-50 d-block px-2 text-truncate">
+                        Administration
+                    </small>
+                    <div class="mt-2">
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2 py-1 small">
+                            <i class="bi bi-shield-lock me-1"></i>Admin Access
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Module Navigation Links -->
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <!-- 1. Module Overview (Available) -->
+                        <a class="nav-link {% if request.resolver_match.url_name == 'admin_home' %}active{% endif %}"
+                           {% if request.resolver_match.url_name == 'admin_home' %}aria-current="page"{% endif %}
+                           href="{% url 'adminpanel:admin_home' %}">
+                            <i class="bi bi-grid-1x2-fill me-2"></i>Module Overview
+                        </a>
+
+                        <!-- 2. Department Dashboard -->
+                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                            <i class="bi bi-speedometer2 me-2"></i>Dashboard
+                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
+                        </span>
+
+                        <!-- 3. Applicant Records -->
+                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                            <i class="bi bi-people me-2"></i>Applicants
+                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
+                        </span>
+
+                        <!-- 4. Fire Officer Management -->
+                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                            <i class="bi bi-person-badge me-2"></i>Officers
+                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
+                        </span>
+
+                        <!-- 5. Application Monitoring Queue -->
+                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                            <i class="bi bi-folder2-open me-2"></i>Applications
+                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
+                        </span>
+
+                        <!-- 6. NOC Certificate Issuance -->
+                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                            <i class="bi bi-patch-check me-2"></i>NOC Certificates
+                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
+                        </span>
+
+                        <!-- 7. Reports & Analytics -->
+                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                            <i class="bi bi-graph-up-arrow me-2"></i>Reports
+                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
+                        </span>
+
+                        <!-- 8. System Audit Trail -->
+                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                            <i class="bi bi-journal-text me-2"></i>Audit Log
+                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
+                        </span>
+
+                        <hr class="my-2 border-secondary-subtle">
+
+                        <!-- 9. Django Administration Site -->
+                        <a class="nav-link" href="/admin/">
+                            <i class="bi bi-box-arrow-up-right me-2"></i>Django Admin Site
+                        </a>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Module Scope Reference Card -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-body p-3">
+                    <h6 class="fw-bold small text-uppercase text-muted mb-2">
+                        <i class="bi bi-info-circle me-1"></i>Module Scope
+                    </h6>
+                    <p class="small text-muted mb-0">
+                        Administration, relational database design, final NOC issuance and
+                        departmental reporting for the Fire NOC workflow.
+                    </p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Page Body (Column 2) -->
+        <main class="col-lg-9 col-md-8">
+            <!-- Page Heading -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                        <div>
+                            <h4 class="fw-bold mb-1">
+                                {% block admin_page_heading %}Admin, Database &amp; NOC Module{% endblock %}
+                            </h4>
+                            <p class="text-muted mb-0">
+                                {% block admin_page_subtitle %}Departmental control room for the Fire NOC lifecycle.{% endblock %}
+                            </p>
+                        </div>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle badge-role">
+                            <i class="bi bi-gear me-1"></i>Administration
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            {% block admin_content %}{% endblock %}
+        </main>
+    </div>
+</div>
+{% endblock %}
