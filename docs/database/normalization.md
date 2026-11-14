@@ -347,11 +347,33 @@ The migration is reversible: unapplying it unlinks the applications and empties
 the three tables, which is safe because the preceding migration created them
 empty and the denormalized columns are never modified.
 
-**Known gap.** The backfill populates the normalized tables from data that
-exists when it runs. Nothing yet keeps them in step with applications submitted
-afterwards, because the applicant module writes only the denormalized columns.
-Until the admin screens write through these tables, a new application will have
-`building_id` and `applicant_profile_id` null.
+**Staying in step after the backfill.** The migration populates the normalized
+tables from the data that exists when it runs. The applicant module writes only
+the denormalized columns, so without something further every application
+submitted afterwards would leave `building_id` and `applicant_profile_id` null
+and the normalized tables would be a snapshot rather than a live record.
+
+A `post_save` receiver on `Application`, registered by the admin module in
+`adminpanel/signals.py`, closes that gap. It creates whatever normalized rows a
+saved application needs and links them. Three decisions are worth recording:
+
+- **It lives in the admin module, not in `Application.save()`**, so the
+  applicant module — which another member of the team owns — needs no further
+  change.
+- **It runs inside the saving transaction**, not on `transaction.on_commit`, so
+  an application and its normalized rows commit or roll back together. Deferring
+  to commit would allow an application to be stored while its normalized rows
+  failed silently.
+- **It fills gaps and never overwrites.** This differs deliberately from the
+  backfill's most-recent-wins rule. The backfill had no authoritative record to
+  protect; now `ApplicantProfile` and `Building` are that record, so a later
+  application supplies only values that are still blank rather than rewriting a
+  correction an administrator has made.
+
+The same exclusions apply as in the backfill: an application with no postal
+code, or with a zero floor count or built-up area, is saved normally and keeps
+a null `building_id`. It still receives an applicant profile, since that
+relation has no such constraint.
 
 The original columns are not dropped. Dropping them would break working code in
 two modules this module does not own, for no benefit the project can collect
