@@ -530,6 +530,8 @@ holds for writes that do not pass through it.
 
 [query-plans.md](query-plans.md) measures which of these indexes the
 PostgreSQL planner actually chooses, and what each one saves.
+[sample-queries.sql](sample-queries.sql) holds fifteen annotated queries
+against this schema, runnable with `python manage.py runqueries --seed 2000`.
 
 ### Indexes
 
