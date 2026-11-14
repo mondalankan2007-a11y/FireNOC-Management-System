@@ -520,6 +520,199 @@ class ApplicantAuthenticationTests(TestCase):
 
 
 
+class InspectionDetailsViewTests(TestCase):
+    """
+    Test suite for the Applicant Inspection Details page:
+    /applicant/applications/<id>/inspections/
+
+    Covers:
+    1. Unauthenticated access is redirected to /login/.
+    2. Applicant can view their own application's inspection details.
+    3. Applicant cannot access another applicant's inspection page (404).
+    4. Scheduled inspection information displays correctly.
+    5. Multiple inspections appear in chronological order (earliest first).
+    6. The unscheduled (no inspection) state renders a helpful message.
+    7. Inspection status changes (In Progress, Completed, Cancelled) display correctly.
+    """
+
+    def setUp(self):
+        from applicants.models import Application
+        from officers.models import Inspection, InspectionReport
+
+        self.user_a = User.objects.create_user(
+            username='insp_applicant_a@firenoc.gov.in',
+            email='insp_applicant_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.user_b = User.objects.create_user(
+            username='insp_applicant_b@firenoc.gov.in',
+            email='insp_applicant_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Other',
+            last_name='User',
+        )
+
+        self.app_a = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='insp_applicant_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Tech Park Alpha',
+            building_type='COMMERCIAL',
+            building_address='42 Central Avenue',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=5,
+            builtup_area='2500.00',
+            year_construction=2018,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Fire NOC for commercial premises.',
+            status='UNDER_INSPECTION',
+        )
+
+        self.app_b = Application.objects.create(
+            applicant=self.user_b,
+            full_name='Other User',
+            email='insp_applicant_b@firenoc.gov.in',
+            mobile_number='9123456780',
+            building_name='Confidential Tower',
+            building_type='RESIDENTIAL',
+            building_address='999 Private Road',
+            city='Mumbai',
+            state='Maharashtra',
+            pin_code='400001',
+            num_floors=12,
+            builtup_area='6000.00',
+            year_construction=2020,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Residential clearance.',
+            status='PENDING',
+        )
+
+        # Application A inspection: older one — 2026-11-20
+        self.insp_a1 = Inspection.objects.create(
+            application=self.app_a,
+            scheduled_date=datetime.date(2026, 11, 20),
+            scheduled_time=datetime.time(10, 0),
+            location='42 Central Avenue, Kolkata',
+            status='CANCELLED',
+            officer_remarks='Cancelled due to officer unavailability.',
+        )
+
+        # Application A inspection: newer one — 2026-11-25 (should appear after a1)
+        self.insp_a2 = Inspection.objects.create(
+            application=self.app_a,
+            scheduled_date=datetime.date(2026, 11, 25),
+            scheduled_time=datetime.time(14, 30),
+            location='42 Central Avenue, Kolkata',
+            status='COMPLETED',
+        )
+        # Attach a report to insp_a2
+        self.report_a2 = InspectionReport.objects.create(
+            inspection=self.insp_a2,
+            overall_result='SATISFACTORY',
+            general_observations='All fire safety provisions were found to be in order.',
+            officer_remarks='Excellent compliance.',
+            completed_at=datetime.datetime(2026, 11, 25, 15, 30, tzinfo=datetime.timezone.utc),
+        )
+
+        self.url_a = reverse('applicants:inspection_details', kwargs={'application_id': self.app_a.id})
+        self.url_b = reverse('applicants:inspection_details', kwargs={'application_id': self.app_b.id})
+        self.login_url = reverse('login')
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Unauthenticated GET to /applicant/applications/<id>/inspections/ redirects to /login/."""
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f'{self.login_url}?next={self.url_a}')
+
+    def test_applicant_can_view_their_own_inspection_details(self):
+        """Authenticated applicant can access the inspection details of their own application."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/inspection_details.html')
+        self.assertEqual(response.context['application'], self.app_a)
+        self.assertTrue(response.context['has_inspections'])
+        self.assertEqual(len(response.context['inspections']), 2)
+
+    def test_applicant_cannot_access_other_applicants_inspection_page(self):
+        """Applicant A gets HTTP 404 when attempting to access Applicant B's inspection page."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_b)
+        self.assertEqual(response.status_code, 404)
+
+    def test_scheduled_inspection_displays_date_time_location_officer(self):
+        """Scheduled inspection shows date, time, location and status badge on the page."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        # Scheduled date from insp_a1
+        self.assertContains(response, '20 Nov 2026')
+        self.assertContains(response, '10:00')
+        self.assertContains(response, '42 Central Avenue, Kolkata')
+
+    def test_multiple_inspections_in_chronological_order(self):
+        """Multiple inspections are ordered by scheduled_date ascending (earliest first)."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        inspections = list(response.context['inspections'])
+        # insp_a1 is on 2026-11-20, insp_a2 on 2026-11-25 — a1 must come first
+        self.assertEqual(inspections[0].pk, self.insp_a1.pk)
+        self.assertEqual(inspections[1].pk, self.insp_a2.pk)
+
+    def test_no_inspection_scheduled_state(self):
+        """When an application has no inspection, the 'not yet scheduled' message appears."""
+        self.client.force_login(self.user_a)
+        # Create a fresh application with no inspections
+        from applicants.models import Application
+        app_no_insp = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='insp_applicant_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Empty Building',
+            building_type='INDUSTRIAL',
+            building_address='1 Empty St',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700001',
+            num_floors=1,
+            builtup_area='500.00',
+            year_construction=2022,
+            occupancy_type='INDUSTRIAL',
+            application_type='NEW_NOC',
+            purpose='Test.',
+            status='PENDING',
+        )
+        url = reverse('applicants:inspection_details', kwargs={'application_id': app_no_insp.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['has_inspections'])
+        self.assertContains(response, 'No Inspection Scheduled Yet')
+
+    def test_completed_inspection_with_report_displays_correctly(self):
+        """Completed inspection shows overall result and general observations from report."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Satisfactory')
+        self.assertContains(response, 'All fire safety provisions were found to be in order.')
+        self.assertContains(response, 'Excellent compliance.')
+
+    def test_cancelled_inspection_status_displays(self):
+        """Cancelled inspection shows Cancelled badge and cancellation remark."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Cancelled')
+        self.assertContains(response, 'Cancelled due to officer unavailability.')
 class ApplicationFormViewTests(TestCase):
     """
     Tests for the multi-section Fire NOC Application Form UI.
@@ -1772,4 +1965,197 @@ class MyDocumentsListingViewTests(TestCase):
 
 
 
+class InspectionDetailsViewTests(TestCase):
+    """
+    Test suite for the Applicant Inspection Details page:
+    /applicant/applications/<id>/inspections/
+
+    Covers:
+    1. Unauthenticated access is redirected to /login/.
+    2. Applicant can view their own application's inspection details.
+    3. Applicant cannot access another applicant's inspection page (404).
+    4. Scheduled inspection information displays correctly.
+    5. Multiple inspections appear in chronological order (earliest first).
+    6. The unscheduled (no inspection) state renders a helpful message.
+    7. Inspection status changes (In Progress, Completed, Cancelled) display correctly.
+    """
+
+    def setUp(self):
+        from applicants.models import Application
+        from officers.models import Inspection, InspectionReport
+
+        self.user_a = User.objects.create_user(
+            username='insp_applicant_a@firenoc.gov.in',
+            email='insp_applicant_a@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.user_b = User.objects.create_user(
+            username='insp_applicant_b@firenoc.gov.in',
+            email='insp_applicant_b@firenoc.gov.in',
+            password='FireSafety#2026',
+            first_name='Other',
+            last_name='User',
+        )
+
+        self.app_a = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='insp_applicant_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Tech Park Alpha',
+            building_type='COMMERCIAL',
+            building_address='42 Central Avenue',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=5,
+            builtup_area='2500.00',
+            year_construction=2018,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Fire NOC for commercial premises.',
+            status='UNDER_INSPECTION',
+        )
+
+        self.app_b = Application.objects.create(
+            applicant=self.user_b,
+            full_name='Other User',
+            email='insp_applicant_b@firenoc.gov.in',
+            mobile_number='9123456780',
+            building_name='Confidential Tower',
+            building_type='RESIDENTIAL',
+            building_address='999 Private Road',
+            city='Mumbai',
+            state='Maharashtra',
+            pin_code='400001',
+            num_floors=12,
+            builtup_area='6000.00',
+            year_construction=2020,
+            occupancy_type='RESIDENTIAL',
+            application_type='NEW_NOC',
+            purpose='Residential clearance.',
+            status='PENDING',
+        )
+
+        # Application A inspection: older one — 2026-11-20
+        self.insp_a1 = Inspection.objects.create(
+            application=self.app_a,
+            scheduled_date=datetime.date(2026, 11, 20),
+            scheduled_time=datetime.time(10, 0),
+            location='42 Central Avenue, Kolkata',
+            status='CANCELLED',
+            officer_remarks='Cancelled due to officer unavailability.',
+        )
+
+        # Application A inspection: newer one — 2026-11-25 (should appear after a1)
+        self.insp_a2 = Inspection.objects.create(
+            application=self.app_a,
+            scheduled_date=datetime.date(2026, 11, 25),
+            scheduled_time=datetime.time(14, 30),
+            location='42 Central Avenue, Kolkata',
+            status='COMPLETED',
+        )
+        # Attach a report to insp_a2
+        self.report_a2 = InspectionReport.objects.create(
+            inspection=self.insp_a2,
+            overall_result='SATISFACTORY',
+            general_observations='All fire safety provisions were found to be in order.',
+            officer_remarks='Excellent compliance.',
+            completed_at=datetime.datetime(2026, 11, 25, 15, 30, tzinfo=datetime.timezone.utc),
+        )
+
+        self.url_a = reverse('applicants:inspection_details', kwargs={'application_id': self.app_a.id})
+        self.url_b = reverse('applicants:inspection_details', kwargs={'application_id': self.app_b.id})
+        self.login_url = reverse('login')
+
+    def test_unauthenticated_access_redirects_to_login(self):
+        """Unauthenticated GET to /applicant/applications/<id>/inspections/ redirects to /login/."""
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, f'{self.login_url}?next={self.url_a}')
+
+    def test_applicant_can_view_their_own_inspection_details(self):
+        """Authenticated applicant can access the inspection details of their own application."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'applicants/inspection_details.html')
+        self.assertEqual(response.context['application'], self.app_a)
+        self.assertTrue(response.context['has_inspections'])
+        self.assertEqual(len(response.context['inspections']), 2)
+
+    def test_applicant_cannot_access_other_applicants_inspection_page(self):
+        """Applicant A gets HTTP 404 when attempting to access Applicant B's inspection page."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_b)
+        self.assertEqual(response.status_code, 404)
+
+    def test_scheduled_inspection_displays_date_time_location_officer(self):
+        """Scheduled inspection shows date, time, location and status badge on the page."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        # Scheduled date from insp_a1
+        self.assertContains(response, '20 Nov 2026')
+        self.assertContains(response, '10:00')
+        self.assertContains(response, '42 Central Avenue, Kolkata')
+
+    def test_multiple_inspections_in_chronological_order(self):
+        """Multiple inspections are ordered by scheduled_date ascending (earliest first)."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        inspections = list(response.context['inspections'])
+        # insp_a1 is on 2026-11-20, insp_a2 on 2026-11-25 — a1 must come first
+        self.assertEqual(inspections[0].pk, self.insp_a1.pk)
+        self.assertEqual(inspections[1].pk, self.insp_a2.pk)
+
+    def test_no_inspection_scheduled_state(self):
+        """When an application has no inspection, the 'not yet scheduled' message appears."""
+        self.client.force_login(self.user_a)
+        # Create a fresh application with no inspections
+        from applicants.models import Application
+        app_no_insp = Application.objects.create(
+            applicant=self.user_a,
+            full_name='Ankan Mondal',
+            email='insp_applicant_a@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Empty Building',
+            building_type='INDUSTRIAL',
+            building_address='1 Empty St',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700001',
+            num_floors=1,
+            builtup_area='500.00',
+            year_construction=2022,
+            occupancy_type='INDUSTRIAL',
+            application_type='NEW_NOC',
+            purpose='Test.',
+            status='PENDING',
+        )
+        url = reverse('applicants:inspection_details', kwargs={'application_id': app_no_insp.id})
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context['has_inspections'])
+        self.assertContains(response, 'No Inspection Scheduled Yet')
+
+    def test_completed_inspection_with_report_displays_correctly(self):
+        """Completed inspection shows overall result and general observations from report."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Satisfactory')
+        self.assertContains(response, 'All fire safety provisions were found to be in order.')
+        self.assertContains(response, 'Excellent compliance.')
+
+    def test_cancelled_inspection_status_displays(self):
+        """Cancelled inspection shows Cancelled badge and cancellation remark."""
+        self.client.force_login(self.user_a)
+        response = self.client.get(self.url_a)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Cancelled')
+        self.assertContains(response, 'Cancelled due to officer unavailability.')
 

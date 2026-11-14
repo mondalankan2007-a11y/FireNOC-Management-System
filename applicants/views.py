@@ -16,6 +16,7 @@ from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import Application, ApplicationDocument
+from officers.models import Inspection, InspectionReport
 
 
 def get_applicant_dashboard_data(user):
@@ -930,3 +931,52 @@ def my_documents(request):
         'latest_application': user_applications.first(),
     }
     return render(request, 'applicants/my_documents.html', context)
+
+
+@login_required(login_url='login')
+def inspection_details(request, application_id):
+    """
+    Applicant Inspection Details view.
+    Displays all inspections associated with a specific Fire NOC application
+    owned by the currently authenticated applicant.
+
+    Security & Ownership:
+    - Protected with @login_required.
+    - Application ownership is strictly enforced via applicant=request.user.
+    - Returns HTTP 404 if the application does not exist or belongs to another applicant.
+    - Inspection records are accessed only via application.inspections (ORM relation),
+      never by trusting a raw inspection ID from the URL.
+
+    Data sourced from officer module (read-only access):
+    - officers.models.Inspection (scheduled_date, scheduled_time, location, status,
+      officer_remarks, officer FK, started_at, completed_at)
+    - officers.models.InspectionReport (overall_result, general_observations, officer_remarks)
+    """
+    application = get_object_or_404(
+        Application.objects.filter(applicant=request.user),
+        pk=application_id
+    )
+
+    # Fetch all inspections for this application in chronological order.
+    # select_related('officer', 'report') avoids N+1 queries in template.
+    inspections = list(
+        application.inspections
+        .select_related('officer', 'report')
+        .order_by('scheduled_date', 'scheduled_time', 'created_at')
+    )
+
+    context = {
+        'application': application,
+        'inspections': inspections,
+        'has_inspections': len(inspections) > 0,
+        # Pass status constants for use in template comparisons
+        'STATUS_SCHEDULED': Inspection.STATUS_SCHEDULED,
+        'STATUS_IN_PROGRESS': Inspection.STATUS_IN_PROGRESS,
+        'STATUS_COMPLETED': Inspection.STATUS_COMPLETED,
+        'STATUS_CANCELLED': Inspection.STATUS_CANCELLED,
+        # Pass report result constants
+        'RESULT_SATISFACTORY': InspectionReport.RESULT_SATISFACTORY,
+        'RESULT_UNSATISFACTORY': InspectionReport.RESULT_UNSATISFACTORY,
+        'RESULT_REQUIRES_RECTIFICATION': InspectionReport.RESULT_REQUIRES_RECTIFICATION,
+    }
+    return render(request, 'applicants/inspection_details.html', context)

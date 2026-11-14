@@ -24,4 +24,7 @@ urlpatterns = [
 
     # Applicant Uploaded Documents Listing
     path('documents/', views.my_documents, name='my_documents'),
+
+    # Inspection Details
+    path('applications/<int:application_id>/inspections/', views.inspection_details, name='inspection_details'),
 ]

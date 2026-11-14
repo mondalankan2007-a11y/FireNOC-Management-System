@@ -47,7 +47,7 @@
                         <a class="nav-link active" href="{% url 'applicants:my_documents' %}">
                             <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
                         </a>
-                        <a class="nav-link" href="#inspection-details" data-bs-toggle="tooltip" title="Inspection reports and scheduled dates">
+                        <a class="nav-link" href="{% url 'applicants:my_applications' %}" title="Select an application to view its inspection details">
                             <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
                         </a>
                         <a class="nav-link" href="#corrections" data-bs-toggle="tooltip" title="Outstanding deficiency rectification notices">

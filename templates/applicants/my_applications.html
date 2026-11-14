@@ -47,7 +47,7 @@
                         <a class="nav-link" href="{% url 'applicants:my_documents' %}">
                             <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
                         </a>
-                        <a class="nav-link" href="#inspection-details" data-bs-toggle="tooltip" title="Inspection reports and scheduled dates">
+                        <a class="nav-link" href="{% url 'applicants:my_applications' %}" title="Select an application to view its inspection details">
                             <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
                         </a>
                         <a class="nav-link" href="#corrections" data-bs-toggle="tooltip" title="Outstanding deficiency rectification notices">
@@ -281,11 +281,18 @@
                                                 {% endif %}
                                             </td>
                                             <td class="text-end pe-3">
-                                                <a href="{% url 'applicants:application_details' app.id %}"
-                                                   class="btn btn-sm btn-outline-primary"
-                                                   title="View full application details">
-                                                    <i class="bi bi-eye me-1"></i>View Details
-                                                </a>
+                                                <div class="btn-group btn-group-sm">
+                                                    <a href="{% url 'applicants:application_details' app.id %}"
+                                                       class="btn btn-outline-primary"
+                                                       title="View full application details">
+                                                        <i class="bi bi-eye me-1"></i>Details
+                                                    </a>
+                                                    <a href="{% url 'applicants:inspection_details' app.id %}"
+                                                       class="btn btn-outline-secondary"
+                                                       title="View inspection schedule and reports">
+                                                        <i class="bi bi-clipboard2-check me-1"></i>Inspections
+                                                    </a>
+                                                </div>
                                             </td>
                                         </tr>
                                     {% endfor %}

@@ -7,7 +7,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from .views import home
-from applicants.views import register, login_view, logout_view, my_applications, application_details, document_upload, my_documents
+from applicants.views import register, login_view, logout_view, my_applications, application_details, document_upload, my_documents, inspection_details
 
 urlpatterns = [
     # Admin Interface
@@ -34,6 +34,9 @@ urlpatterns = [
 
     # Top-level Documents Listing route: /documents/
     path('documents/', my_documents, name='my_documents_root'),
+
+    # Top-level Inspection Details route: /applications/<id>/inspections/
+    path('applications/<int:application_id>/inspections/', inspection_details, name='inspection_details_root'),
 ]
 
 # Serve media files in development environment
