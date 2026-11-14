@@ -93,6 +93,14 @@ class DocumentVerification(models.Model):
     class Meta:
         verbose_name = 'Document Verification'
         verbose_name_plural = 'Document Verifications'
+        indexes = [
+            models.Index(fields=['status'], name='docverification_status_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=['PENDING', 'VERIFIED', 'REJECTED']),
+                name='docverification_status_valid'),
+        ]
 
     def __str__(self):
         return f"Verification for {self.document.document_name}: {self.get_status_display()}"
@@ -167,6 +175,19 @@ class ApplicationReview(models.Model):
     class Meta:
         verbose_name = 'Application Review'
         verbose_name_plural = 'Application Reviews'
+        indexes = [
+            models.Index(fields=['recommendation'], name='review_recommendation_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=['UNDER_REVIEW', 'DOCUMENTS_VERIFIED']),
+                name='review_status_valid'),
+            models.CheckConstraint(
+                check=models.Q(recommendation__in=[
+                    'PENDING', 'REQUIRES_RECTIFICATION',
+                    'RECOMMENDED_FOR_APPROVAL', 'NOT_RECOMMENDED']),
+                name='review_recommendation_valid'),
+        ]
 
     def __str__(self):
         return f"Review for {self.application.application_id}: {self.get_status_display()}"
@@ -233,6 +254,27 @@ class Inspection(models.Model):
         verbose_name = 'Inspection'
         verbose_name_plural = 'Inspections'
         ordering = ['scheduled_date', 'scheduled_time']
+        indexes = [
+            # The officer dashboard lists upcoming visits by status and date.
+            models.Index(fields=['status', 'scheduled_date'],
+                         name='inspection_status_date_idx'),
+            # Date-range reporting with no status filter.
+            models.Index(fields=['scheduled_date'], name='inspection_date_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=[
+                    'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']),
+                name='inspection_status_valid'),
+            # Redundant on its own, since id is already unique. It exists so
+            # that officers_deficiency can carry a composite foreign key to
+            # (id, application_id) and the database can guarantee a deficiency
+            # names the same application as the inspection that found it.
+            # See officers/migrations/0006_deficiency_application_consistency.
+            models.UniqueConstraint(
+                fields=['id', 'application'],
+                name='inspection_id_application_uniq'),
+        ]
 
     def __str__(self):
         return (
@@ -300,6 +342,12 @@ class InspectionChecklistItem(models.Model):
         verbose_name_plural = 'Inspection Checklist Items'
         unique_together = ('inspection', 'item_type')
         ordering = ['item_type']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=[
+                    'COMPLIANT', 'NON_COMPLIANT', 'NOT_APPLICABLE']),
+                name='checklistitem_status_valid'),
+        ]
 
     def __str__(self):
         return f"{self.get_item_type_display()}: {self.get_status_display()}"
@@ -341,6 +389,12 @@ class InspectionReport(models.Model):
     class Meta:
         verbose_name = 'Inspection Report'
         verbose_name_plural = 'Inspection Reports'
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(overall_result__in=[
+                    'SATISFACTORY', 'UNSATISFACTORY', 'REQUIRES_RECTIFICATION']),
+                name='inspectionreport_result_valid'),
+        ]
 
     def __str__(self):
         return (
@@ -432,6 +486,23 @@ class Deficiency(models.Model):
         verbose_name = 'Deficiency'
         verbose_name_plural = 'Deficiencies'
         ordering = ['-created_at']
+        indexes = [
+            # The open-deficiency queue, newest first.
+            models.Index(fields=['status', '-created_at'],
+                         name='deficiency_status_time_idx'),
+            # Reporting on how serious outstanding deficiencies are.
+            models.Index(fields=['severity'], name='deficiency_severity_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(severity__in=['MINOR', 'MAJOR', 'CRITICAL']),
+                name='deficiency_severity_valid'),
+            models.CheckConstraint(
+                check=models.Q(status__in=[
+                    'OPEN', 'SUBMITTED_FOR_VERIFICATION', 'VERIFIED',
+                    'REJECTED', 'CLOSED']),
+                name='deficiency_status_valid'),
+        ]
 
     def __str__(self):
         return f"DEF-{self.pk}: {self.title} [{self.get_status_display()}]"
@@ -499,6 +570,12 @@ class DeficiencyRectification(models.Model):
         verbose_name = 'Deficiency Rectification'
         verbose_name_plural = 'Deficiency Rectifications'
         ordering = ['-submitted_at']
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(status__in=[
+                    'SUBMITTED', 'UNDER_REVIEW', 'ACCEPTED', 'REJECTED']),
+                name='rectification_status_valid'),
+        ]
 
     def __str__(self):
         return f"Rectification #{self.pk} for {self.deficiency} [{self.get_status_display()}]"

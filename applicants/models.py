@@ -43,6 +43,11 @@ class Application(models.Model):
         ('APPROVED', 'Approved'),
         ('REJECTED', 'Rejected'),
         ('DEFICIENT', 'Deficient'),
+        # Terminal state once the Admin module issues the certificate. The
+        # applicant timeline, the dashboard counter and the status badge all
+        # already looked for this value; it was simply never declared here,
+        # so no database could enforce it and no form could offer it.
+        ('NOC_ISSUED', 'Fire NOC Issued'),
     ]
 
     # Section A: Applicant Information
@@ -104,6 +109,52 @@ class Application(models.Model):
         ordering = ['-created_at']
         verbose_name = 'Fire NOC Application'
         verbose_name_plural = 'Fire NOC Applications'
+        indexes = [
+            # Status queue ordered newest first: the applicant application
+            # filter (views.py) and every officer work queue.
+            models.Index(fields=['status', '-created_at'],
+                         name='application_status_time_idx'),
+            # Unfiltered listings and reports.
+            models.Index(fields=['-created_at'], name='application_created_idx'),
+            # Separating new applications from renewals in reporting.
+            models.Index(fields=['application_type'], name='application_type_idx'),
+        ]
+        constraints = [
+            # Domain integrity. Django choices are validated in Python only, so
+            # without these a row written by a SQL client, a data migration or a
+            # bulk load could hold a value the application cannot interpret.
+            # AdminPanelConstraintIntegrityTests asserts these lists stay in
+            # step with the model's own choices.
+            models.CheckConstraint(
+                check=models.Q(status__in=[
+                    'PENDING', 'UNDER_REVIEW', 'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION',
+                    'APPROVED', 'REJECTED', 'DEFICIENT', 'NOC_ISSUED']),
+                name='application_status_valid'),
+            models.CheckConstraint(
+                check=models.Q(application_type__in=['NEW_NOC', 'RENEWAL']),
+                name='application_type_valid'),
+            models.CheckConstraint(
+                check=models.Q(building_type__in=[
+                    'RESIDENTIAL', 'COMMERCIAL', 'INDUSTRIAL', 'EDUCATIONAL',
+                    'HOSPITAL', 'HOTEL', 'OTHER']),
+                name='application_building_type_valid'),
+            models.CheckConstraint(
+                check=models.Q(occupancy_type__in=[
+                    'RESIDENTIAL', 'BUSINESS', 'ASSEMBLY', 'INDUSTRIAL', 'STORAGE',
+                    'EDUCATIONAL', 'HEALTHCARE', 'MIXED_USE']),
+                name='application_occupancy_type_valid'),
+            # Measurement bounds, mirroring the limits the submission form
+            # already applies, so the database holds the same rule.
+            models.CheckConstraint(
+                check=models.Q(num_floors__gte=1, num_floors__lte=200),
+                name='application_num_floors_range'),
+            models.CheckConstraint(
+                check=models.Q(builtup_area__gt=0),
+                name='application_builtup_area_positive'),
+            models.CheckConstraint(
+                check=models.Q(year_construction__gte=1800, year_construction__lte=2100),
+                name='application_year_construction_range'),
+        ]
 
     def __str__(self):
         return f"{self.application_id or self.pk} - {self.building_name} ({self.get_status_display()})"
@@ -154,6 +205,16 @@ class ApplicationDocument(models.Model):
 
     class Meta:
         ordering = ['uploaded_at']
+        indexes = [
+            models.Index(fields=['document_type'], name='document_type_idx'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(document_type__in=[
+                    'ARCHITECTURAL_BLUEPRINT', 'FIRE_SAFETY_PLAN', 'HYDRANT_LAYOUT',
+                    'EQUIPMENT_TEST_CERTIFICATE', 'OWNERSHIP_DEED', 'OTHER']),
+                name='document_type_valid'),
+        ]
         verbose_name = 'Application Document'
         verbose_name_plural = 'Application Documents'
 

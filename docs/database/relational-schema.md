@@ -319,22 +319,26 @@ does not erase the inspection record that justified a certificate decision.
 | `officers_deficiencyrectification` | `reviewed_by_id` | Automatic: foreign key |
 
 Every index above is created automatically by PostgreSQL or Django as a side
-effect of a `PRIMARY KEY`, `UNIQUE` or `FOREIGN KEY` declaration. **No index has
-been declared deliberately for a query pattern.** Columns the application
-filters and sorts on constantly — `applicants_application.status`,
-`applicants_application.created_at`, `officers_inspection.scheduled_date`,
-`officers_deficiency.status` — are not indexed, so every dashboard count and
-every queue listing is a sequential scan.
+effect of a `PRIMARY KEY`, `UNIQUE` or `FOREIGN KEY` declaration. None of them
+was declared for a query pattern.
 
-This is recorded here as the measured starting point for the index tuning work
-later in this module, not as a criticism of the existing code: with a small
-development dataset the difference is invisible.
+That was the starting point. The columns the application filters and sorts on
+constantly — `applicants_application.status` and `created_at`,
+`officers_inspection.scheduled_date`, `officers_deficiency.status` — carried no
+index, so every status queue and dashboard count was a sequential scan. Nine
+further indexes have since been declared for those patterns, each one traceable
+to a query in the view code; they are listed in
+[section 9](#9-declared-indexes-and-constraints).
 
 ---
 
 ## 5. Declarative constraints
 
-| Constraint kind | Count across the eleven tables above |
+The table below is the schema **as inherited**, before the admin module's
+constraints work. [Section 9](#9-declared-indexes-and-constraints) gives the
+current position.
+
+| Constraint kind | Count across the eleven tables, as inherited |
 |---|---|
 | `PRIMARY KEY` | 11 (one per table) |
 | `FOREIGN KEY` | 19 |
@@ -344,16 +348,14 @@ development dataset the difference is invisible.
 | `CHECK` | **0** |
 | Database-level `UniqueConstraint` | **0** |
 
-These eleven tables have no `CHECK` constraints. (The three normalized tables
-in section 7 do declare them, which is why the counts here are scoped.) Every rule beyond "this column
+As inherited, these eleven tables had no `CHECK` constraints at all. Every rule beyond "this column
 must not be null" is enforced only in Python: status values are validated by
 Django `choices`, which generates no database constraint, and numeric fields
 such as `num_floors` and `builtup_area` accept any value the application layer
 allows through. A row inserted by a SQL client, a data migration or a bulk load
 can therefore violate rules the application believes are guaranteed.
 
-Closing that gap is the subject of the database constraints work later in this
-module.
+That gap is closed in [section 9](#9-declared-indexes-and-constraints).
 
 ---
 
@@ -381,10 +383,14 @@ depends on.
 | `officers_deficiency` | `status` | `OPEN`, `SUBMITTED_FOR_VERIFICATION`, `VERIFIED`, `REJECTED`, `CLOSED` |
 | `officers_deficiencyrectification` | `status` | `SUBMITTED`, `UNDER_REVIEW`, `ACCEPTED`, `REJECTED` |
 
-`applicants_application.status` has no terminal value for a certificate having
-been issued. The applicant-facing timeline already looks for `NOC_ISSUED`, but
-that value is not in the column's allowed set and no table records an issued
-certificate. Both are addressed by the NOC issuance work in this module.
+`applicants_application.status` originally had no terminal value for a
+certificate having been issued, even though the applicant timeline, the
+dashboard counter and the status badge all already tested for `NOC_ISSUED`. The
+value was simply never declared, so no form could offer it and no database could
+enforce it. Adding the status CHECK constraint surfaced this immediately: an
+existing test writes `NOC_ISSUED` directly and the constraint rejected it.
+`NOC_ISSUED` is now a declared status. The table that records the certificate
+itself is still to come, in the NOC issuance work.
 
 ---
 
@@ -512,3 +518,80 @@ This is also the first table in the schema with indexes chosen for queries
 rather than inherited from constraints. The three composite indexes answer the
 three questions the admin module will ask of it: what happened to this record,
 what did this officer do, and what happened recently.
+
+---
+
+## 9. Declared indexes and constraints
+
+Added by the admin module to the eleven inherited tables. Every index
+below answers a query that exists in the view code; every constraint
+mirrors a rule the application layer already applies, so that the rule
+holds for writes that do not pass through it.
+
+### Indexes
+
+| Table | Columns | Name |
+|---|---|---|
+| `applicants_application` | `status`, `created_at` DESC | `application_status_time_idx` |
+| `applicants_application` | `created_at` DESC | `application_created_idx` |
+| `applicants_application` | `application_type` | `application_type_idx` |
+| `applicants_applicationdocument` | `document_type` | `document_type_idx` |
+| `officers_documentverification` | `status` | `docverification_status_idx` |
+| `officers_applicationreview` | `recommendation` | `review_recommendation_idx` |
+| `officers_inspection` | `status`, `scheduled_date` | `inspection_status_date_idx` |
+| `officers_inspection` | `scheduled_date` | `inspection_date_idx` |
+| `officers_deficiency` | `status`, `created_at` DESC | `deficiency_status_time_idx` |
+| `officers_deficiency` | `severity` | `deficiency_severity_idx` |
+
+### CHECK constraints
+
+| Table | Rule | Name |
+|---|---|---|
+| `applicants_application` | `status` is one of its 8 declared choices | `application_status_valid` |
+| `applicants_application` | `application_type` is one of its 2 declared choices | `application_type_valid` |
+| `applicants_application` | `building_type` is one of its 7 declared choices | `application_building_type_valid` |
+| `applicants_application` | `occupancy_type` is one of its 8 declared choices | `application_occupancy_type_valid` |
+| `applicants_application` | `num_floors` >= 1 and `num_floors` <= 200 | `application_num_floors_range` |
+| `applicants_application` | `builtup_area` > 0 | `application_builtup_area_positive` |
+| `applicants_application` | `year_construction` >= 1800 and `year_construction` <= 2100 | `application_year_construction_range` |
+| `applicants_applicationdocument` | `document_type` is one of its 6 declared choices | `document_type_valid` |
+| `officers_documentverification` | `status` is one of its 3 declared choices | `docverification_status_valid` |
+| `officers_applicationreview` | `status` is one of its 2 declared choices | `review_status_valid` |
+| `officers_applicationreview` | `recommendation` is one of its 4 declared choices | `review_recommendation_valid` |
+| `officers_inspection` | `status` is one of its 4 declared choices | `inspection_status_valid` |
+| `officers_inspectionchecklistitem` | `status` is one of its 3 declared choices | `checklistitem_status_valid` |
+| `officers_inspectionreport` | `overall_result` is one of its 3 declared choices | `inspectionreport_result_valid` |
+| `officers_deficiency` | `severity` is one of its 3 declared choices | `deficiency_severity_valid` |
+| `officers_deficiency` | `status` is one of its 5 declared choices | `deficiency_status_valid` |
+| `officers_deficiencyrectification` | `status` is one of its 4 declared choices | `rectification_status_valid` |
+### Cross-table rule: a deficiency must match its inspection
+
+`officers_deficiency` references both `officers_inspection` and
+`applicants_application`, and the inspection already references the
+application, so `application_id` is derivable. The normalization analysis
+retains that redundancy deliberately, to keep a join out of the officer
+module's most frequent query.
+
+A redundancy is defensible only while it cannot become an inconsistency, and a
+`CHECK` constraint cannot express this rule because it may not read another
+table. A composite foreign key can:
+
+```sql
+-- on officers_inspection, so the pair can be referenced
+UNIQUE (id, application_id)
+
+-- on officers_deficiency
+FOREIGN KEY (inspection_id, application_id)
+    REFERENCES officers_inspection (id, application_id)
+    DEFERRABLE INITIALLY DEFERRED
+```
+
+The database now rejects any deficiency whose application disagrees with its
+inspection's application. The constraint is deferred, so it is checked when the
+transaction commits rather than on each statement, which lets a caller write
+the rows in either order.
+
+Django's ORM cannot declare a composite foreign key, so this one is created by
+raw SQL in `officers/migrations/0006_deficiency_application_consistency.py`,
+guarded to run only on PostgreSQL. On the SQLite development fallback the rule
+remains an application-level guarantee only.

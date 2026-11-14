@@ -222,10 +222,13 @@ by something other than the application.
 
 This is a reasoned trade of normal form against query cost, which is a normal
 thing for a physical schema to do. What makes it defensible rather than sloppy
-is that the invariant is written down and will be enforced: the constraints work
-later in this module adds a database-level check that a deficiency's application
-matches its inspection's application, so the redundancy cannot become an
-inconsistency.
+is that the invariant is enforced rather than merely intended. A `CHECK`
+constraint cannot express it, since it may not read another table, so
+`officers_inspection` declares `UNIQUE (id, application_id)` and
+`officers_deficiency` carries a composite foreign key to that pair. The database
+rejects any deficiency whose application disagrees with its inspection's. The
+redundancy therefore cannot become an inconsistency; see section 9 of
+[relational-schema.md](relational-schema.md).
 
 ---
 

@@ -1,12 +1,17 @@
+from datetime import date, time
 from decimal import Decimal
+from unittest import skipUnless
 
 from django.contrib.auth.models import User
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
+
+from officers.models import Deficiency, Inspection
 
 from applicants.models import Application
 
 from .models import ApplicantProfile, AuditLog, Building, PinCode
+from .signals import _sync_building
 
 
 def make_application(user, **overrides):
@@ -130,26 +135,46 @@ class NormalizedRecordSyncTests(TestCase):
 
 class UnusableApplicationTests(TestCase):
     """
-    Application permits values that Building's constraints reject. Such an
-    application must still be saved, and must not be given invented values.
+    The building guard in the sync receiver.
+
+    Zero floors and zero built-up area can no longer reach the database:
+    application_num_floors_range and application_builtup_area_positive reject
+    them at insert time. The guard remains as a backstop for rows arriving by
+    other routes — a data migration, a bulk load, a SQL client — so it is
+    exercised directly against unsaved instances rather than through a save
+    the database would refuse.
     """
 
     def setUp(self):
         self.user = User.objects.create_user('applicant2', 'a2@example.com', 'pw')
 
-    def test_zero_floors_leaves_the_building_unlinked(self):
-        application = make_application(self.user, num_floors=0)
+    def _unsaved(self, **overrides):
+        values = dict(
+            applicant=self.user, full_name='X', email='x@example.com',
+            mobile_number='1', building_name='B', building_type='COMMERCIAL',
+            building_address='12 MI Road', city='Jaipur', state='Rajasthan',
+            pin_code='302001', num_floors=8, builtup_area=Decimal('100'),
+            year_construction=2015, occupancy_type='BUSINESS',
+            application_type='NEW_NOC', purpose='p')
+        values.update(overrides)
+        return Application(**values)
 
-        application.refresh_from_db()
+    def test_guard_rejects_zero_floors(self):
+        self.assertIsNone(_sync_building(self._unsaved(num_floors=0)))
         self.assertEqual(Building.objects.count(), 0)
-        self.assertIsNone(application.building_id)
 
-    def test_zero_builtup_area_leaves_the_building_unlinked(self):
-        application = make_application(self.user, builtup_area=Decimal('0'))
-
-        application.refresh_from_db()
+    def test_guard_rejects_zero_builtup_area(self):
+        self.assertIsNone(_sync_building(self._unsaved(builtup_area=Decimal('0'))))
         self.assertEqual(Building.objects.count(), 0)
-        self.assertIsNone(application.building_id)
+
+    def test_guard_rejects_blank_pin_code(self):
+        self.assertIsNone(_sync_building(self._unsaved(pin_code='')))
+        self.assertEqual(PinCode.objects.count(), 0)
+
+    def test_guard_accepts_a_usable_application(self):
+        building = _sync_building(self._unsaved())
+        self.assertIsNotNone(building)
+        self.assertEqual(building.num_floors, 8)
 
     def test_blank_pin_code_leaves_the_building_unlinked(self):
         application = make_application(self.user, pin_code='')
@@ -158,20 +183,7 @@ class UnusableApplicationTests(TestCase):
         self.assertEqual(Building.objects.count(), 0)
         self.assertEqual(PinCode.objects.count(), 0)
         self.assertIsNone(application.building_id)
-
-    def test_unusable_application_still_gets_an_applicant_profile(self):
-        application = make_application(self.user, num_floors=0)
-
-        application.refresh_from_db()
-        self.assertEqual(ApplicantProfile.objects.count(), 1)
         self.assertIsNotNone(application.applicant_profile_id)
-
-    def test_unusable_application_is_still_saved_normally(self):
-        application = make_application(self.user, num_floors=0)
-
-        application.refresh_from_db()
-        self.assertTrue(application.application_id.startswith('NOC-'))
-        self.assertEqual(application.building_name, 'Sunrise Tower')
 
 
 class SyncSideEffectTests(TestCase):
@@ -212,12 +224,16 @@ class SyncSideEffectTests(TestCase):
         self.assertIsNotNone(application.building_id)
 
     def test_numeric_strings_that_are_zero_are_still_rejected(self):
-        application = make_application(
-            self.user, num_floors='0', builtup_area='0.00')
+        unsaved = Application(
+            applicant=self.user, full_name='X', email='x@example.com',
+            mobile_number='1', building_name='B', building_type='COMMERCIAL',
+            building_address='9 Zero Lane', city='Jaipur', state='Rajasthan',
+            pin_code='302001', num_floors='0', builtup_area='0.00',
+            year_construction=2015, occupancy_type='BUSINESS',
+            application_type='NEW_NOC', purpose='p')
 
-        application.refresh_from_db()
+        self.assertIsNone(_sync_building(unsaved))
         self.assertEqual(Building.objects.count(), 0)
-        self.assertIsNone(application.building_id)
 
     def test_denormalized_columns_are_left_untouched(self):
         application = make_application(self.user)
@@ -363,3 +379,155 @@ class AuditLogDurabilityTests(TestCase):
             AuditLog.ACTION_LOGIN, AuditLog.ENTITY_SYSTEM, actor=self.officer)
 
         self.assertIsNone(entry.entity_id)
+
+
+class ConstraintIntegrityTests(TestCase):
+    """
+    The CHECK constraints added to the original eleven tables.
+
+    Each one mirrors a rule the application layer already applies. These tests
+    assert the database applies it too, by writing values that bypass Django's
+    own validation the way a data migration or a SQL client would.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('applicant11', 'a11@example.com', 'pw')
+
+    def _create(self, **overrides):
+        with transaction.atomic():
+            return make_application(self.user, **overrides)
+
+    def test_invalid_status_is_rejected(self):
+        with self.assertRaises(IntegrityError):
+            self._create(status='NOT_A_REAL_STATUS')
+
+    def test_invalid_building_type_is_rejected(self):
+        with self.assertRaises(IntegrityError):
+            self._create(building_type='CASTLE')
+
+    def test_invalid_occupancy_type_is_rejected(self):
+        with self.assertRaises(IntegrityError):
+            self._create(occupancy_type='NOWHERE')
+
+    def test_invalid_application_type_is_rejected(self):
+        with self.assertRaises(IntegrityError):
+            self._create(application_type='TRANSFER')
+
+    def test_zero_floors_is_rejected(self):
+        with self.assertRaises(IntegrityError):
+            self._create(num_floors=0)
+
+    def test_more_than_two_hundred_floors_is_rejected(self):
+        with self.assertRaises(IntegrityError):
+            self._create(num_floors=201)
+
+    def test_zero_builtup_area_is_rejected(self):
+        with self.assertRaises(IntegrityError):
+            self._create(builtup_area=Decimal('0'))
+
+    def test_implausible_construction_year_is_rejected(self):
+        with self.assertRaises(IntegrityError):
+            self._create(year_construction=1200)
+
+    def test_valid_boundary_values_are_accepted(self):
+        application = self._create(num_floors=200, year_construction=1800,
+                                   builtup_area=Decimal('0.01'))
+        self.assertEqual(application.num_floors, 200)
+
+
+class ConstraintDriftTests(TestCase):
+    """
+    The CHECK constraints list their allowed values literally, so that the
+    teammates' model files need no restructuring. That duplication is only
+    safe while it stays in step with the model's own choices, which is what
+    this test enforces: add a status to a model and forget the constraint,
+    and this fails.
+    """
+
+    CASES = [
+        ('applicants', 'Application', 'status', 'application_status_valid'),
+        ('applicants', 'Application', 'application_type', 'application_type_valid'),
+        ('applicants', 'Application', 'building_type', 'application_building_type_valid'),
+        ('applicants', 'Application', 'occupancy_type', 'application_occupancy_type_valid'),
+        ('applicants', 'ApplicationDocument', 'document_type', 'document_type_valid'),
+        ('officers', 'DocumentVerification', 'status', 'docverification_status_valid'),
+        ('officers', 'ApplicationReview', 'status', 'review_status_valid'),
+        ('officers', 'ApplicationReview', 'recommendation', 'review_recommendation_valid'),
+        ('officers', 'Inspection', 'status', 'inspection_status_valid'),
+        ('officers', 'InspectionChecklistItem', 'status', 'checklistitem_status_valid'),
+        ('officers', 'InspectionReport', 'overall_result', 'inspectionreport_result_valid'),
+        ('officers', 'Deficiency', 'severity', 'deficiency_severity_valid'),
+        ('officers', 'Deficiency', 'status', 'deficiency_status_valid'),
+        ('officers', 'DeficiencyRectification', 'status', 'rectification_status_valid'),
+    ]
+
+    def test_every_constraint_matches_its_field_choices(self):
+        from django.apps import apps as registry
+
+        for app_label, model_name, field_name, constraint_name in self.CASES:
+            with self.subTest(constraint=constraint_name):
+                model = registry.get_model(app_label, model_name)
+                field_values = {c[0] for c in model._meta.get_field(field_name).choices}
+
+                constraint = next(
+                    (c for c in model._meta.constraints if c.name == constraint_name),
+                    None)
+                self.assertIsNotNone(
+                    constraint, f'{constraint_name} is missing from {model_name}.Meta')
+
+                condition = getattr(constraint, 'check', None) or constraint.condition
+                lookup, allowed = condition.children[0]
+                self.assertTrue(lookup.endswith('__in'), lookup)
+                self.assertEqual(
+                    set(allowed), field_values,
+                    f'{constraint_name} does not match {model_name}.{field_name} choices')
+
+
+@skipUnless(connection.vendor == 'postgresql',
+            'The composite foreign key is only created on PostgreSQL')
+class DeficiencyApplicationConsistencyTests(TestCase):
+    """
+    officers_deficiency stores application_id even though it is derivable
+    through inspection_id. The composite foreign key makes that redundancy
+    safe: the database rejects a deficiency whose application disagrees with
+    its inspection's application.
+
+    The constraint is DEFERRABLE INITIALLY DEFERRED, so it is checked when the
+    transaction commits rather than at insert. These tests force the check
+    with SET CONSTRAINTS ALL IMMEDIATE, because Django's TestCase rolls its
+    transaction back and would otherwise never reach a commit.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('applicant12', 'a12@example.com', 'pw')
+        self.application_a = make_application(self.user)
+        self.application_b = make_application(
+            self.user, building_address='77 Station Road')
+        self.inspection = Inspection.objects.create(
+            application=self.application_a,
+            scheduled_date=date(2026, 12, 1),
+            scheduled_time=time(10, 0),
+            status='SCHEDULED')
+
+    def _force_constraint_check(self):
+        with connection.cursor() as cursor:
+            cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+
+    def test_matching_application_is_accepted(self):
+        Deficiency.objects.create(
+            application=self.application_a, inspection=self.inspection,
+            title='Blocked fire exit', description='Rear exit obstructed',
+            severity='MAJOR', status='OPEN')
+
+        self._force_constraint_check()
+        self.assertEqual(Deficiency.objects.count(), 1)
+
+    def test_mismatched_application_is_rejected_by_the_database(self):
+        Deficiency.objects.create(
+            application=self.application_b,   # belongs to a different application
+            inspection=self.inspection,
+            title='Wrong application', description='Should not be storable',
+            severity='MINOR', status='OPEN')
+
+        with self.assertRaises(IntegrityError):
+            self._force_constraint_check()
