@@ -16,7 +16,386 @@ from django.db.models import Q
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import Application, ApplicationDocument
-from officers.models import Inspection, InspectionReport
+from officers.models import (
+    Inspection,
+    InspectionReport,
+    ApplicationReview,
+    DocumentVerification,
+    Deficiency,
+    DeficiencyRectification,
+)
+
+
+def build_application_timeline(application):
+    """
+    Construct a dynamic chronological lifecycle timeline for a Fire NOC application.
+    Sourced strictly from actual database records across Application, ApplicationReview,
+    DocumentVerification, Inspection, InspectionReport, Deficiency, and DeficiencyRectification.
+
+    Stages:
+    1. Application Submitted
+    2. Application Under Review
+    3. Documents Verified
+    4. Inspection Scheduled
+    5. Inspection Completed
+    6. Deficiencies Raised (if applicable)
+    7. Corrections Submitted (if applicable)
+    8. Application Approved or Rejected
+    9. NOC Issued (if applicable)
+
+    Each stage dictionary contains:
+      - 'id': identifier key
+      - 'name': display name of the stage
+      - 'icon': Bootstrap icon class
+      - 'state': 'completed' | 'current' | 'upcoming' | 'rejected'
+      - 'timestamp': DateTime or Date or None
+      - 'status_label': text badge for the stage status
+      - 'remarks': officer notes or remarks, if available
+      - 'officer_name': name of the responsible officer, if available
+      - 'details': supplementary metadata (e.g. counts, schedule time, location)
+    """
+    review = getattr(application, 'officer_review', None)
+    documents = list(application.documents.select_related('verification', 'verification__verified_by').all())
+    inspections = list(application.inspections.select_related('officer', 'report').order_by('scheduled_date', 'scheduled_time', 'created_at'))
+    deficiencies = list(application.deficiencies.select_related('reported_by', 'closed_by').prefetch_related('rectifications').order_by('created_at'))
+
+    latest_inspection = inspections[-1] if inspections else None
+    has_scheduled_inspection = any(i.status in (Inspection.STATUS_SCHEDULED, Inspection.STATUS_IN_PROGRESS, Inspection.STATUS_COMPLETED) for i in inspections)
+    completed_inspections = [i for i in inspections if i.status == Inspection.STATUS_COMPLETED]
+    latest_completed_inspection = completed_inspections[-1] if completed_inspections else None
+
+    # Check for dynamic NOC model if present in installed apps
+    noc_record = None
+    for app_config in apps.get_app_configs():
+        for model in app_config.get_models():
+            model_name = model.__name__.lower()
+            if model_name in ('noc', 'firenoc', 'certificate', 'issuednoc'):
+                field_names = [f.name for f in model._meta.get_fields()]
+                if 'application' in field_names:
+                    noc_record = model.objects.filter(application=application).first()
+                    break
+        if noc_record:
+            break
+
+    timeline = []
+
+    # -------------------------------------------------------------
+    # Stage 1: Application Submitted
+    # -------------------------------------------------------------
+    timeline.append({
+        'id': 'submitted',
+        'name': 'Application Submitted',
+        'icon': 'bi-send-check',
+        'state': 'completed',
+        'timestamp': application.created_at,
+        'status_label': 'Submitted',
+        'remarks': f"Reference Number {application.application_id} registered for {application.building_name}.",
+        'officer_name': None,
+        'details': f"Type: {application.get_application_type_display()} | Purpose: {application.purpose[:80]}..." if len(application.purpose) > 80 else f"Type: {application.get_application_type_display()} | Purpose: {application.purpose}",
+    })
+
+    # -------------------------------------------------------------
+    # Stage 2: Application Under Review
+    # -------------------------------------------------------------
+    has_under_review = (
+        application.status in ('UNDER_REVIEW', 'DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED', 'DEFICIENT')
+        or (review is not None)
+    )
+    is_current_under_review = (application.status == 'UNDER_REVIEW')
+
+    review_officer = (
+        review.reviewed_by.get_full_name() or review.reviewed_by.username
+        if review and review.reviewed_by else None
+    )
+
+    if has_under_review:
+        is_cur = (application.status == 'UNDER_REVIEW')
+        review_state = 'current' if is_cur else 'completed'
+        timeline.append({
+            'id': 'under_review',
+            'name': 'Application Under Review',
+            'icon': 'bi-search',
+            'state': review_state,
+            'timestamp': review.created_at if review else None,
+            'status_label': 'In Progress' if is_current_under_review else 'Reviewed',
+            'remarks': review.officer_remarks if review and review.officer_remarks else "Application and submitted building parameters are under desk evaluation.",
+            'officer_name': review_officer,
+            'details': None,
+        })
+    elif application.status == 'REJECTED' and not review:
+        # Rejected prior to formal review
+        timeline.append({
+            'id': 'under_review',
+            'name': 'Application Under Review',
+            'icon': 'bi-search',
+            'state': 'upcoming',
+            'timestamp': None,
+            'status_label': 'Bypassed',
+            'remarks': None,
+            'officer_name': None,
+            'details': None,
+        })
+    else:
+        # Still pending
+        is_cur = (application.status == 'PENDING')
+        timeline.append({
+            'id': 'under_review',
+            'name': 'Application Under Review',
+            'icon': 'bi-search',
+            'state': 'current' if is_cur else 'upcoming',
+            'timestamp': None,
+            'status_label': 'Awaiting Desk Assignment' if is_cur else 'Upcoming',
+            'remarks': 'Desk review will commence after initial queue processing.',
+            'officer_name': None,
+            'details': None,
+        })
+
+    # -------------------------------------------------------------
+    # Stage 3: Documents Verified
+    # -------------------------------------------------------------
+    verified_docs = [d for d in documents if hasattr(d, 'verification') and d.verification.status == 'VERIFIED']
+    rejected_docs = [d for d in documents if hasattr(d, 'verification') and d.verification.status == 'REJECTED']
+    all_docs_verified = len(documents) > 0 and len(verified_docs) == len(documents)
+    is_doc_verified_stage = (
+        application.status in ('DOCUMENTS_VERIFIED', 'UNDER_INSPECTION', 'APPROVED')
+        or (review is not None and review.status == 'DOCUMENTS_VERIFIED')
+        or all_docs_verified
+    )
+
+    latest_doc_verification_time = None
+    doc_verifiers = []
+    for d in documents:
+        if hasattr(d, 'verification') and d.verification.verified_at:
+            if not latest_doc_verification_time or d.verification.verified_at > latest_doc_verification_time:
+                latest_doc_verification_time = d.verification.verified_at
+            if d.verification.verified_by:
+                name = d.verification.verified_by.get_full_name() or d.verification.verified_by.username
+                if name not in doc_verifiers:
+                    doc_verifiers.append(name)
+
+    if is_doc_verified_stage:
+        state = 'current' if application.status == 'DOCUMENTS_VERIFIED' else 'completed'
+        remarks = "All submitted documents and architectural plans verified successfully."
+        if review and review.officer_remarks:
+            remarks = review.officer_remarks
+        timeline.append({
+            'id': 'docs_verified',
+            'name': 'Documents Verified',
+            'icon': 'bi-file-earmark-check',
+            'state': state,
+            'timestamp': latest_doc_verification_time or (review.reviewed_at if review else None),
+            'status_label': 'Documents Verified' if state == 'current' else 'Verified',
+            'remarks': remarks,
+            'officer_name': ", ".join(doc_verifiers) if doc_verifiers else review_officer,
+            'details': f"{len(verified_docs)} of {len(documents)} document(s) verified." if documents else None,
+        })
+    elif rejected_docs:
+        timeline.append({
+            'id': 'docs_verified',
+            'name': 'Documents Verification',
+            'icon': 'bi-file-earmark-x',
+            'state': 'rejected',
+            'timestamp': latest_doc_verification_time,
+            'status_label': 'Deficient / Rejection in Documents',
+            'remarks': rejected_docs[0].verification.officer_remarks if rejected_docs[0].verification else "One or more documents were rejected by the reviewing officer.",
+            'officer_name': ", ".join(doc_verifiers) if doc_verifiers else None,
+            'details': f"{len(rejected_docs)} document(s) require re-upload.",
+        })
+    else:
+        is_cur = (application.status == 'UNDER_REVIEW' and len(documents) > 0)
+        timeline.append({
+            'id': 'docs_verified',
+            'name': 'Documents Verified',
+            'icon': 'bi-file-earmark-check',
+            'state': 'current' if is_cur else 'upcoming',
+            'timestamp': None,
+            'status_label': 'Verification Pending' if is_cur else 'Upcoming',
+            'remarks': 'Fire safety officers are auditing blueprints, deeds, and safety apparatus documents.',
+            'officer_name': None,
+            'details': f"{len(documents)} document(s) uploaded." if documents else "No documents uploaded yet.",
+        })
+
+    # -------------------------------------------------------------
+    # Stage 4: Inspection Scheduled
+    # -------------------------------------------------------------
+    if has_scheduled_inspection and latest_inspection:
+        state = 'current' if (application.status == 'UNDER_INSPECTION' and latest_inspection.status == Inspection.STATUS_SCHEDULED) else 'completed'
+        officer_display = latest_inspection.officer.get_full_name() or latest_inspection.officer.username if latest_inspection.officer else None
+        timeline.append({
+            'id': 'inspection_scheduled',
+            'name': 'Inspection Scheduled',
+            'icon': 'bi-calendar-event',
+            'state': state,
+            'timestamp': latest_inspection.created_at,
+            'status_label': f"Scheduled for {latest_inspection.scheduled_date.strftime('%d %b %Y')}",
+            'remarks': latest_inspection.officer_remarks or f"On-site physical inspection scheduled at {latest_inspection.location or application.building_address}.",
+            'officer_name': officer_display,
+            'details': f"Date: {latest_inspection.scheduled_date.strftime('%d %b %Y')} | Time: {latest_inspection.scheduled_time.strftime('%H:%M')}",
+        })
+    else:
+        is_cur = (application.status == 'DOCUMENTS_VERIFIED')
+        timeline.append({
+            'id': 'inspection_scheduled',
+            'name': 'Inspection Scheduled',
+            'icon': 'bi-calendar-event',
+            'state': 'current' if is_cur else 'upcoming',
+            'timestamp': None,
+            'status_label': 'Ready for Scheduling' if is_cur else 'Upcoming',
+            'remarks': 'Site inspection will be assigned to a field inspection officer.',
+            'officer_name': None,
+            'details': None,
+        })
+
+    # -------------------------------------------------------------
+    # Stage 5: Inspection Completed
+    # -------------------------------------------------------------
+    if latest_completed_inspection:
+        report = getattr(latest_completed_inspection, 'report', None)
+        officer_display = latest_completed_inspection.officer.get_full_name() or latest_completed_inspection.officer.username if latest_completed_inspection.officer else None
+        report_result = report.get_overall_result_display() if report else "Completed"
+        timeline.append({
+            'id': 'inspection_completed',
+            'name': 'Inspection Completed',
+            'icon': 'bi-clipboard2-check',
+            'state': 'completed',
+            'timestamp': latest_completed_inspection.completed_at or (report.completed_at if report else latest_completed_inspection.updated_at),
+            'status_label': f"Result: {report_result}",
+            'remarks': report.general_observations if report and report.general_observations else latest_completed_inspection.officer_remarks,
+            'officer_name': officer_display,
+            'details': f"Findings: {report.officer_remarks}" if report and report.officer_remarks else None,
+        })
+    elif latest_inspection and latest_inspection.status == Inspection.STATUS_IN_PROGRESS:
+        officer_display = latest_inspection.officer.get_full_name() or latest_inspection.officer.username if latest_inspection.officer else None
+        timeline.append({
+            'id': 'inspection_completed',
+            'name': 'Inspection In Progress',
+            'icon': 'bi-activity',
+            'state': 'current',
+            'timestamp': latest_inspection.started_at,
+            'status_label': 'On-Site Inspection Ongoing',
+            'remarks': 'Inspecting officer is actively evaluating site apparatus and safety checklists.',
+            'officer_name': officer_display,
+            'details': None,
+        })
+    else:
+        timeline.append({
+            'id': 'inspection_completed',
+            'name': 'Inspection Completed',
+            'icon': 'bi-clipboard2-check',
+            'state': 'upcoming',
+            'timestamp': None,
+            'status_label': 'Upcoming',
+            'remarks': 'Field evaluation report and safety checklist assessment.',
+            'officer_name': None,
+            'details': None,
+        })
+
+    # -------------------------------------------------------------
+    # Stage 6: Deficiencies Raised (Conditional: only if deficiencies exist)
+    # -------------------------------------------------------------
+    if deficiencies:
+        open_defs = [d for d in deficiencies if d.status not in (Deficiency.STATUS_VERIFIED, Deficiency.STATUS_CLOSED)]
+        latest_def = deficiencies[-1]
+        def_officer = latest_def.reported_by.get_full_name() or latest_def.reported_by.username if latest_def.reported_by else None
+        timeline.append({
+            'id': 'deficiencies_raised',
+            'name': 'Deficiencies Raised',
+            'icon': 'bi-exclamation-triangle',
+            'state': 'current' if open_defs and not any(d.rectifications.exists() for d in deficiencies) else 'completed',
+            'timestamp': latest_def.created_at,
+            'status_label': f"{len(deficiencies)} Deficienc{'y' if len(deficiencies) == 1 else 'ies'} Logged",
+            'remarks': f"Latest: {latest_def.title} — {latest_def.description[:100]}...",
+            'officer_name': def_officer,
+            'details': f"Severity: {latest_def.get_severity_display()} | Status: {latest_def.get_status_display()}",
+        })
+
+    # -------------------------------------------------------------
+    # Stage 7: Corrections Submitted (Conditional: if rectifications exist)
+    # -------------------------------------------------------------
+    all_rectifications = []
+    for d in deficiencies:
+        for r in d.rectifications.all():
+            all_rectifications.append((r, d))
+
+    if all_rectifications:
+        all_rectifications.sort(key=lambda x: x[0].submitted_at)
+        latest_rect, parent_def = all_rectifications[-1]
+        is_cur = (latest_rect.status in (DeficiencyRectification.STATUS_SUBMITTED, DeficiencyRectification.STATUS_UNDER_REVIEW))
+        timeline.append({
+            'id': 'corrections_submitted',
+            'name': 'Corrections Submitted',
+            'icon': 'bi-tools',
+            'state': 'current' if is_cur else 'completed',
+            'timestamp': latest_rect.submitted_at,
+            'status_label': latest_rect.get_status_display(),
+            'remarks': latest_rect.description,
+            'officer_name': latest_rect.reviewed_by.get_full_name() if latest_rect.reviewed_by else None,
+            'details': f"Addressing {parent_def.title} [{latest_rect.status}]",
+        })
+
+    # -------------------------------------------------------------
+    # Stage 8: Application Approved or Rejected
+    # -------------------------------------------------------------
+    if application.status == 'APPROVED':
+        timeline.append({
+            'id': 'final_decision',
+            'name': 'Application Approved',
+            'icon': 'bi-check-circle-fill',
+            'state': 'completed',
+            'timestamp': application.updated_at,
+            'status_label': 'Approved',
+            'remarks': "Application approved by Fire Department Administration in full compliance with municipal fire safety standards.",
+            'officer_name': None,
+            'details': f"Approved for Reference {application.application_id}",
+        })
+    elif application.status == 'REJECTED':
+        rejection_reason = application.remarks or "Application does not satisfy statutory fire safety norms."
+        timeline.append({
+            'id': 'final_decision',
+            'name': 'Application Rejected',
+            'icon': 'bi-x-circle-fill',
+            'state': 'rejected',
+            'timestamp': application.updated_at,
+            'status_label': 'Rejected',
+            'remarks': rejection_reason,
+            'officer_name': None,
+            'details': "Contact helpdesk or consult municipal office for re-application requirements.",
+        })
+    else:
+        # Check if officer recommended approval
+        is_recommended = (review is not None and review.recommendation == ApplicationReview.RECOMMENDATION_APPROVED)
+        timeline.append({
+            'id': 'final_decision',
+            'name': 'Application Decision',
+            'icon': 'bi-shield-check',
+            'state': 'current' if is_recommended else 'upcoming',
+            'timestamp': review.recommended_at if (review and is_recommended) else None,
+            'status_label': 'Recommended for Approval' if is_recommended else 'Pending Final Decision',
+            'remarks': review.recommendation_remarks if (review and is_recommended and review.recommendation_remarks) else "Final authorization by Fire Safety Administration following inspection sign-off.",
+            'officer_name': review.recommended_by.get_full_name() or review.recommended_by.username if (review and review.recommended_by) else None,
+            'details': None,
+        })
+
+    # -------------------------------------------------------------
+    # Stage 9: NOC Issued (Only if NOC exists or status is NOC_ISSUED/ISSUED)
+    # -------------------------------------------------------------
+    noc_issued = (noc_record is not None or application.status in ('NOC_ISSUED', 'ISSUED'))
+    if noc_issued:
+        noc_num = getattr(noc_record, 'noc_number', getattr(noc_record, 'certificate_number', application.application_id))
+        noc_time = getattr(noc_record, 'issued_at', getattr(noc_record, 'created_at', application.updated_at))
+        timeline.append({
+            'id': 'noc_issued',
+            'name': 'Fire NOC Issued',
+            'icon': 'bi-award-fill',
+            'state': 'completed',
+            'timestamp': noc_time,
+            'status_label': 'NOC Certificate Available',
+            'remarks': f"Digital Fire Safety No Objection Certificate issued: {noc_num}",
+            'officer_name': None,
+            'details': f"Certificate No: {noc_num}",
+        })
+
+    return timeline
 
 
 def get_applicant_dashboard_data(user):
@@ -648,11 +1027,33 @@ def application_details(request, application_id):
         'Your application is currently being processed by the fire department.'
     )
 
+    timeline = build_application_timeline(application)
+
     context = {
         'application': application,
         'status_description': status_description,
+        'timeline': timeline,
     }
     return render(request, 'applicants/application_details.html', context)
+
+
+@login_required(login_url='login')
+def application_timeline(request, application_id):
+    """
+    Dedicated view for the full chronological progress timeline of a Fire NOC application.
+    Protected by @login_required and scoped strictly to applicant=request.user.
+    """
+    application = get_object_or_404(
+        Application.objects.filter(applicant=request.user),
+        pk=application_id
+    )
+    timeline = build_application_timeline(application)
+
+    context = {
+        'application': application,
+        'timeline': timeline,
+    }
+    return render(request, 'applicants/application_timeline.html', context)
 
 
 @login_required(login_url='login')

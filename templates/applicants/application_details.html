@@ -71,6 +71,9 @@
                         <a class="nav-link" href="{% url 'applicants:inspection_details' application.id %}">
                             <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
                         </a>
+                        <a class="nav-link" href="{% url 'applicants:application_timeline' application.id %}">
+                            <i class="bi bi-clock-history me-2 text-warning"></i>Status Timeline
+                        </a>
                         <a class="nav-link" href="#corrections" data-bs-toggle="tooltip" title="Outstanding deficiency rectification notices">
                             <i class="bi bi-exclamation-triangle me-2"></i>Corrections
                         </a>
@@ -124,6 +127,9 @@
                         </p>
                     </div>
                     <div class="col-lg-5 text-lg-end no-print d-flex gap-2 justify-content-lg-end flex-wrap">
+                        <a href="{% url 'applicants:application_timeline' application.id %}" class="btn btn-warning text-dark btn-sm px-3 fw-semibold">
+                            <i class="bi bi-clock-history me-1"></i>View Progress Timeline
+                        </a>
                         <a href="{% url 'applicants:my_applications' %}" class="btn btn-outline-light btn-sm px-3">
                             <i class="bi bi-arrow-left me-1"></i>Back to My Applications
                         </a>
@@ -434,12 +440,58 @@
                 </div>
             </div>
 
+            <!-- Section 5: Application Progress Timeline Summary -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-clock-history text-danger fs-5 me-2"></i>
+                        <h5 class="fw-bold mb-0 text-dark">Application Workflow Timeline</h5>
+                    </div>
+                    <a href="{% url 'applicants:application_timeline' application.id %}" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-box-arrow-up-right me-1"></i>Open Full Timeline
+                    </a>
+                </div>
+                <div class="card-body p-4">
+                    <div class="timeline" style="position: relative; padding-left: 2rem;">
+                        {% for stage in timeline %}
+                        <div class="mb-3 position-relative" style="padding-left: 1.5rem; border-left: 2px solid {% if stage.state == 'completed' %}#10b981{% elif stage.state == 'current' %}#0284c7{% elif stage.state == 'rejected' %}#ef4444{% else %}#e2e8f0{% endif %};">
+                            <div style="position: absolute; left: -9px; top: 0; width: 16px; height: 16px; border-radius: 50%; background: {% if stage.state == 'completed' %}#10b981{% elif stage.state == 'current' %}#0284c7{% elif stage.state == 'rejected' %}#ef4444{% else %}#cbd5e1{% endif %};"></div>
+                            <div class="d-flex justify-content-between align-items-start flex-wrap gap-1">
+                                <div>
+                                    <span class="fw-bold text-dark small">{{ stage.name }}</span>
+                                    {% if stage.state == 'current' %}
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle ms-1" style="font-size:0.7rem;">Current Stage</span>
+                                    {% elif stage.state == 'rejected' %}
+                                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle ms-1" style="font-size:0.7rem;">Rejected</span>
+                                    {% endif %}
+                                    {% if stage.remarks %}
+                                        <div class="text-muted small mt-1" style="font-size:0.8rem;">{{ stage.remarks }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="text-end">
+                                    <span class="badge {% if stage.state == 'completed' %}bg-success-subtle text-success{% elif stage.state == 'current' %}bg-primary-subtle text-primary{% elif stage.state == 'rejected' %}bg-danger-subtle text-danger{% else %}bg-secondary-subtle text-secondary{% endif %} border" style="font-size:0.7rem;">
+                                        {{ stage.status_label }}
+                                    </span>
+                                    {% if stage.timestamp %}
+                                        <div class="text-muted font-monospace" style="font-size:0.75rem;">{{ stage.timestamp|date:"d M Y, H:i" }}</div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
             <!-- Bottom Navigation Actions -->
             <div class="d-flex justify-content-between align-items-center mb-4 no-print flex-wrap gap-2">
                 <a href="{% url 'applicants:my_applications' %}" class="btn btn-outline-secondary">
                     <i class="bi bi-arrow-left me-1"></i>Back to My Applications
                 </a>
                 <div class="d-flex gap-2 flex-wrap">
+                    <a href="{% url 'applicants:application_timeline' application.id %}" class="btn btn-outline-warning text-dark fw-semibold">
+                        <i class="bi bi-clock-history me-1"></i>Status Timeline
+                    </a>
                     <a href="{% url 'applicants:inspection_details' application.id %}" class="btn btn-outline-info">
                         <i class="bi bi-clipboard2-check me-1"></i>Inspection Details
                     </a>

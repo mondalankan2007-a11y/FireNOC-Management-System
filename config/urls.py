@@ -7,7 +7,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from .views import home
-from applicants.views import register, login_view, logout_view, my_applications, application_details, document_upload, my_documents, inspection_details
+from applicants.views import register, login_view, logout_view, my_applications, application_details, document_upload, my_documents, inspection_details, application_timeline
 
 urlpatterns = [
     # Admin Interface
@@ -37,6 +37,9 @@ urlpatterns = [
 
     # Top-level Inspection Details route: /applications/<id>/inspections/
     path('applications/<int:application_id>/inspections/', inspection_details, name='inspection_details_root'),
+
+    # Top-level Timeline route: /applications/<id>/timeline/
+    path('applications/<int:application_id>/timeline/', application_timeline, name='application_timeline_root'),
 ]
 
 # Serve media files in development environment

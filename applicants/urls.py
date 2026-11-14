@@ -27,4 +27,7 @@ urlpatterns = [
 
     # Inspection Details
     path('applications/<int:application_id>/inspections/', views.inspection_details, name='inspection_details'),
+
+    # Application Status Timeline
+    path('applications/<int:application_id>/timeline/', views.application_timeline, name='application_timeline'),
 ]

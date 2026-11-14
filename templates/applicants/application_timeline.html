@@ -1,0 +1,322 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Application Progress Timeline - {{ application.application_id }} | FireNOC Management System{% endblock %}
+
+{% block extra_css %}
+<style>
+    .timeline {
+        position: relative;
+        padding-left: 2.5rem;
+    }
+    .timeline::before {
+        content: '';
+        position: absolute;
+        top: 15px;
+        bottom: 15px;
+        left: 17px;
+        width: 3px;
+        background: #e2e8f0;
+        z-index: 1;
+    }
+    .timeline-item {
+        position: relative;
+        margin-bottom: 2rem;
+    }
+    .timeline-item:last-child {
+        margin-bottom: 0.5rem;
+    }
+    .timeline-badge {
+        position: absolute;
+        left: -2.5rem;
+        top: 2px;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 2;
+        font-size: 1rem;
+        box-shadow: 0 0 0 4px #ffffff, 0 2px 4px rgba(0,0,0,0.1);
+        transition: transform 0.2s ease;
+    }
+    .timeline-badge.badge-completed {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: #ffffff;
+    }
+    .timeline-badge.badge-current {
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: #ffffff;
+        box-shadow: 0 0 0 4px #ffffff, 0 0 0 7px rgba(2, 132, 199, 0.25);
+        animation: pulse-ring 2s infinite;
+    }
+    .timeline-badge.badge-upcoming {
+        background: #f1f5f9;
+        color: #94a3b8;
+        border: 2px solid #cbd5e1;
+    }
+    .timeline-badge.badge-rejected {
+        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        color: #ffffff;
+        box-shadow: 0 0 0 4px #ffffff, 0 0 0 7px rgba(220, 38, 38, 0.25);
+    }
+    .timeline-content-card {
+        border-radius: 0.5rem;
+        transition: all 0.2s ease;
+    }
+    .timeline-content-card.card-current {
+        border-left: 4px solid #0284c7 !important;
+        background-color: #f8fafc;
+    }
+    .timeline-content-card.card-rejected {
+        border-left: 4px solid #dc2626 !important;
+        background-color: #fff5f5;
+    }
+    .timeline-content-card.card-completed {
+        border-left: 4px solid #10b981 !important;
+    }
+    .timeline-content-card.card-upcoming {
+        opacity: 0.75;
+        border-left: 4px solid #cbd5e1 !important;
+    }
+    @keyframes pulse-ring {
+        0% {
+            box-shadow: 0 0 0 4px #ffffff, 0 0 0 5px rgba(2, 132, 199, 0.4);
+        }
+        70% {
+            box-shadow: 0 0 0 4px #ffffff, 0 0 0 10px rgba(2, 132, 199, 0);
+        }
+        100% {
+            box-shadow: 0 0 0 4px #ffffff, 0 0 0 5px rgba(2, 132, 199, 0);
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:dashboard' %}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:my_applications' %}">My Applications</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:application_details' application.id %}">{{ application.application_id }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Status Timeline</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Sidebar Navigation -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <div class="dashboard-user-profile text-center">
+                    <div class="dashboard-user-avatar mx-auto mb-2">
+                        <i class="bi bi-person-fill"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">
+                        {{ user.first_name|default:user.username }} {{ user.last_name|default:'' }}
+                    </h5>
+                    <small class="text-white-50 d-block text-truncate px-2">{{ user.email }}</small>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle mt-2 px-2 py-1 small">
+                        <i class="bi bi-patch-check-fill me-1"></i>Verified Applicant
+                    </span>
+                </div>
+
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <a class="nav-link" href="{% url 'applicants:dashboard' %}">
+                            <i class="bi bi-grid-1x2-fill me-2"></i>Dashboard
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:application_new' %}">
+                            <i class="bi bi-file-earmark-plus me-2 text-primary"></i>New Application
+                        </a>
+                        <a class="nav-link active" href="{% url 'applicants:my_applications' %}">
+                            <i class="bi bi-folder2 me-2"></i>My Applications
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:my_documents' %}">
+                            <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:inspection_details' application.id %}">
+                            <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:application_timeline' application.id %}">
+                            <i class="bi bi-clock-history me-2 text-info"></i>Status Timeline
+                        </a>
+                        <hr class="my-2 border-secondary-subtle">
+                        <form method="post" action="{% url 'logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Application Reference Card -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi bi-shield-shaded text-danger fs-4 me-2"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Dossier Summary</h6>
+                </div>
+                <div class="small fw-bold font-monospace text-dark">{{ application.application_id }}</div>
+                <div class="small text-muted mb-2 text-truncate">{{ application.building_name }}</div>
+                <div class="mb-3">
+                    <span class="badge bg-secondary-subtle text-secondary border">
+                        {{ application.get_status_display }}
+                    </span>
+                </div>
+                <a href="{% url 'applicants:application_details' application.id %}" class="btn btn-sm btn-outline-danger w-100 mb-2">
+                    <i class="bi bi-file-earmark-text me-1"></i>Application Details
+                </a>
+                <a href="{% url 'applicants:inspection_details' application.id %}" class="btn btn-sm btn-outline-secondary w-100">
+                    <i class="bi bi-clipboard2-check me-1"></i>Inspection Details
+                </a>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="col-lg-9 col-md-8">
+            <!-- Header Banner -->
+            <div class="dashboard-welcome-banner shadow-sm mb-4">
+                <div class="row align-items-center">
+                    <div class="col-lg-8 mb-3 mb-lg-0">
+                        <span class="badge bg-danger mb-2 px-3 py-1 text-uppercase fw-semibold">
+                            <i class="bi bi-clock-history me-1"></i>Lifecycle Progress
+                        </span>
+                        <h1 class="h3 fw-bold text-white mb-1">Application Progress Timeline</h1>
+                        <p class="text-white-50 mb-0">
+                            {{ application.building_name }} &bull; Reference <strong>{{ application.application_id }}</strong>
+                        </p>
+                    </div>
+                    <div class="col-lg-4 text-lg-end">
+                        <a href="{% url 'applicants:application_details' application.id %}" class="btn btn-outline-light btn-sm px-3">
+                            <i class="bi bi-arrow-left me-1"></i>Back to Application Details
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Timeline Legend Bar -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body py-2 px-3">
+                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 small">
+                        <span class="fw-semibold text-muted text-uppercase me-2">Stage Legend:</span>
+                        <div class="d-flex align-items-center gap-3 flex-wrap">
+                            <span><i class="bi bi-check-circle-fill text-success me-1"></i>Completed Stage</span>
+                            <span><i class="bi bi-record-circle-fill text-primary me-1"></i>Current Stage</span>
+                            <span><i class="bi bi-circle text-muted me-1"></i>Upcoming Stage</span>
+                            <span><i class="bi bi-x-circle-fill text-danger me-1"></i>Rejection / Deficiencies</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vertical Timeline Card -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-bar-chart-steps text-danger fs-5 me-2"></i>
+                        <h5 class="fw-bold mb-0 text-dark">Chronological Workflow Stages</h5>
+                    </div>
+                    <span class="badge bg-light text-muted border">
+                        Current Status: {{ application.get_status_display }}
+                    </span>
+                </div>
+
+                <div class="card-body p-4">
+                    <div class="timeline">
+                        {% for stage in timeline %}
+                        <div class="timeline-item">
+                            <!-- Timeline Node Icon -->
+                            <div class="timeline-badge badge-{{ stage.state }}">
+                                <i class="bi {{ stage.icon }}"></i>
+                            </div>
+
+                            <!-- Timeline Card Content -->
+                            <div class="card timeline-content-card card-{{ stage.state }} shadow-sm border-0">
+                                <div class="card-body p-3">
+                                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                                        <div>
+                                            <h6 class="fw-bold text-dark mb-0">
+                                                {{ stage.name }}
+                                                {% if stage.state == 'current' %}
+                                                    <span class="badge bg-primary text-white ms-2 px-2 py-1 small">Current Stage</span>
+                                                {% elif stage.state == 'rejected' %}
+                                                    <span class="badge bg-danger text-white ms-2 px-2 py-1 small">Attention Required</span>
+                                                {% endif %}
+                                            </h6>
+                                            {% if stage.details %}
+                                                <small class="text-muted d-block mt-1">{{ stage.details }}</small>
+                                            {% endif %}
+                                        </div>
+
+                                        <div class="text-end">
+                                            {% if stage.state == 'completed' %}
+                                                <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                    <i class="bi bi-check2 me-1"></i>{{ stage.status_label }}
+                                                </span>
+                                            {% elif stage.state == 'current' %}
+                                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle">
+                                                    <i class="bi bi-activity me-1"></i>{{ stage.status_label }}
+                                                </span>
+                                            {% elif stage.state == 'rejected' %}
+                                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                                    <i class="bi bi-x-circle me-1"></i>{{ stage.status_label }}
+                                                </span>
+                                            {% else %}
+                                                <span class="badge bg-secondary-subtle text-secondary border">
+                                                    {{ stage.status_label }}
+                                                </span>
+                                            {% endif %}
+
+                                            {% if stage.timestamp %}
+                                                <div class="small text-muted mt-1 font-monospace">
+                                                    <i class="bi bi-clock me-1"></i>{{ stage.timestamp|date:"d M Y, H:i" }}
+                                                </div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+
+                                    {% if stage.remarks %}
+                                        <div class="mt-2 p-2 bg-light rounded border text-muted small">
+                                            <i class="bi bi-chat-left-quote text-primary me-1"></i>
+                                            {{ stage.remarks }}
+                                        </div>
+                                    {% endif %}
+
+                                    {% if stage.officer_name %}
+                                        <div class="mt-2 small text-muted">
+                                            <i class="bi bi-person-badge text-danger me-1"></i>
+                                            Responsible Officer: <strong>{{ stage.officer_name }}</strong>
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Action Navigation -->
+            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+                <a href="{% url 'applicants:application_details' application.id %}" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-left me-1"></i>Back to Application Details
+                </a>
+                <div class="d-flex gap-2">
+                    <a href="{% url 'applicants:inspection_details' application.id %}" class="btn btn-outline-info">
+                        <i class="bi bi-clipboard2-check me-1"></i>Inspection Details
+                    </a>
+                    <a href="{% url 'applicants:my_applications' %}" class="btn btn-primary">
+                        <i class="bi bi-folder2 me-1"></i>My Applications
+                    </a>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+{% endblock %}
+

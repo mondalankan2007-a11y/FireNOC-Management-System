@@ -2308,3 +2308,301 @@ class ApplicantFinalStatusLifecycleTests(TestCase):
         url = reverse('applicants:application_details', kwargs={'application_id': self.app.id})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
+
+
+# ===========================================================================
+# Commit 19 Tests: Add Applicant Inspection Status Timeline
+# ===========================================================================
+
+class ApplicantInspectionStatusTimelineTests(TestCase):
+    """
+    Test suite for Commit 19: Add Applicant Inspection Status Timeline.
+    Validates dynamic, chronological timeline rendering across all 10 required scenarios:
+    1. Newly submitted application.
+    2. Application under review.
+    3. Application with verified documents.
+    4. Application with a scheduled inspection.
+    5. Application with completed inspection.
+    6. Application with deficiencies.
+    7. Application with submitted corrections.
+    8. Approved and rejected applications.
+    9. Application with an issued NOC.
+    10. Applicant attempting to access another applicant's timeline.
+    """
+
+    def setUp(self):
+        from applicants.models import Application, ApplicationDocument
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.applicant_1 = User.objects.create_user(
+            username='timeline_user1@firenoc.gov.in',
+            email='timeline_user1@firenoc.gov.in',
+            password='Password#2026',
+            first_name='Ankan',
+            last_name='Mondal',
+        )
+        self.applicant_2 = User.objects.create_user(
+            username='timeline_user2@firenoc.gov.in',
+            email='timeline_user2@firenoc.gov.in',
+            password='Password#2026',
+            first_name='Sneha',
+            last_name='Roy',
+        )
+        self.officer = User.objects.create_user(
+            username='officer_timeline@firenoc.gov.in',
+            email='officer_timeline@firenoc.gov.in',
+            password='Password#2026',
+            first_name='Rajesh',
+            last_name='Kumar',
+        )
+
+        self.app = Application.objects.create(
+            applicant=self.applicant_1,
+            full_name='Ankan Mondal',
+            email='timeline_user1@firenoc.gov.in',
+            mobile_number='9876543210',
+            building_name='Cyber Tech Tower',
+            building_type='COMMERCIAL',
+            building_address='Plot 5, Sector V, Salt Lake',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700091',
+            num_floors=10,
+            builtup_area='4500.00',
+            year_construction=2020,
+            occupancy_type='BUSINESS',
+            application_type='NEW_NOC',
+            purpose='Fire safety clearance for commercial IT operations.',
+            status='PENDING',
+        )
+
+        self.timeline_url = reverse('applicants:application_timeline', kwargs={'application_id': self.app.id})
+        self.details_url = reverse('applicants:application_details', kwargs={'application_id': self.app.id})
+
+    def test_01_newly_submitted_application(self):
+        """Newly submitted application displays Application Submitted as completed and Under Review as current/awaiting."""
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.timeline_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Application Submitted')
+        self.assertContains(resp, 'Submitted')
+        self.assertContains(resp, 'Cyber Tech Tower')
+        timeline = resp.context['timeline']
+        self.assertEqual(timeline[0]['id'], 'submitted')
+        self.assertEqual(timeline[0]['state'], 'completed')
+        self.assertEqual(timeline[1]['id'], 'under_review')
+        self.assertEqual(timeline[1]['state'], 'current')
+
+    def test_02_application_under_review(self):
+        """Application under review shows officer remarks and Under Review as current."""
+        from officers.models import ApplicationReview
+        self.app.status = 'UNDER_REVIEW'
+        self.app.save()
+        ApplicationReview.objects.create(
+            application=self.app,
+            reviewed_by=self.officer,
+            status='UNDER_REVIEW',
+            officer_remarks='Architectural drawings under review.',
+        )
+
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.timeline_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Application Under Review')
+        self.assertContains(resp, 'Architectural drawings under review.')
+        self.assertContains(resp, 'Rajesh Kumar')
+        timeline = resp.context['timeline']
+        stage_review = [s for s in timeline if s['id'] == 'under_review'][0]
+        self.assertEqual(stage_review['state'], 'current')
+
+    def test_03_application_with_verified_documents(self):
+        """Application with verified documents reflects Documents Verified stage as completed/current."""
+        from applicants.models import ApplicationDocument
+        from officers.models import DocumentVerification
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        doc = ApplicationDocument.objects.create(
+            application=self.app,
+            document_type='ARCHITECTURAL_BLUEPRINT',
+            document_name='Building Plan - Cyber Tech Tower',
+            file=SimpleUploadedFile('blueprint.pdf', b'%PDF-1.4 test', content_type='application/pdf'),
+        )
+        DocumentVerification.objects.create(
+            document=doc,
+            verified_by=self.officer,
+            status='VERIFIED',
+            officer_remarks='All floor layouts verified and approved.',
+        )
+        self.app.status = 'DOCUMENTS_VERIFIED'
+        self.app.save()
+
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.timeline_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Documents Verified')
+        timeline = resp.context['timeline']
+        stage_doc = [s for s in timeline if s['id'] == 'docs_verified'][0]
+        self.assertIn(stage_doc['state'], ('completed', 'current'))
+
+    def test_04_application_with_scheduled_inspection(self):
+        """Application with scheduled inspection reflects date, time, location, and assigned officer."""
+        from officers.models import Inspection
+        self.app.status = 'UNDER_INSPECTION'
+        self.app.save()
+        insp = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer,
+            scheduled_date=datetime.date(2026, 12, 1),
+            scheduled_time=datetime.time(11, 0),
+            location='Plot 5, Sector V, Salt Lake',
+            status=Inspection.STATUS_SCHEDULED,
+            officer_remarks='On-site check of fire hydrant and smoke alarm sensors.',
+        )
+
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.timeline_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Inspection Scheduled')
+        self.assertContains(resp, '01 Dec 2026')
+        self.assertContains(resp, '11:00')
+        self.assertContains(resp, 'On-site check of fire hydrant and smoke alarm sensors.')
+        self.assertContains(resp, 'Rajesh Kumar')
+
+    def test_05_application_with_completed_inspection(self):
+        """Completed inspection shows inspection findings, report observations, and Satisfactory result."""
+        from officers.models import Inspection, InspectionReport
+        insp = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer,
+            scheduled_date=datetime.date(2026, 11, 28),
+            scheduled_time=datetime.time(10, 30),
+            status=Inspection.STATUS_COMPLETED,
+            completed_at=datetime.datetime(2026, 11, 28, 12, 0, tzinfo=datetime.timezone.utc),
+        )
+        InspectionReport.objects.create(
+            inspection=insp,
+            overall_result=InspectionReport.RESULT_SATISFACTORY,
+            general_observations='All fire escape passages unobstructed and extinguishers functional.',
+            officer_remarks='Recommended for NOC certificate issuance.',
+        )
+
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.timeline_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Inspection Completed')
+        self.assertContains(resp, 'Satisfactory')
+        self.assertContains(resp, 'All fire escape passages unobstructed and extinguishers functional.')
+
+    def test_06_application_with_deficiencies(self):
+        """Deficiencies logged by an officer appear dynamically in the timeline."""
+        from officers.models import Inspection, Deficiency
+        insp = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer,
+            scheduled_date=datetime.date(2026, 11, 25),
+            scheduled_time=datetime.time(14, 0),
+            status=Inspection.STATUS_IN_PROGRESS,
+        )
+        Deficiency.objects.create(
+            application=self.app,
+            inspection=insp,
+            reported_by=self.officer,
+            title='Main Exit Signage Blocked',
+            description='Emergency exit sign on 3rd floor obstructed by storage box.',
+            severity=Deficiency.SEVERITY_MAJOR,
+            status=Deficiency.STATUS_OPEN,
+        )
+
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.timeline_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Deficiencies Raised')
+        self.assertContains(resp, 'Main Exit Signage Blocked')
+
+    def test_07_application_with_submitted_corrections(self):
+        """Applicant submitted rectifications appear dynamically in the timeline."""
+        from officers.models import Inspection, Deficiency, DeficiencyRectification
+        insp = Inspection.objects.create(
+            application=self.app,
+            officer=self.officer,
+            scheduled_date=datetime.date(2026, 11, 20),
+            scheduled_time=datetime.time(9, 30),
+            status=Inspection.STATUS_COMPLETED,
+        )
+        defic = Deficiency.objects.create(
+            application=self.app,
+            inspection=insp,
+            reported_by=self.officer,
+            title='Hose Reel Pressure Gauge Missing',
+            description='Ground floor hose reel requires calibrated pressure gauge.',
+            severity=Deficiency.SEVERITY_MINOR,
+            status=Deficiency.STATUS_SUBMITTED,
+        )
+        DeficiencyRectification.objects.create(
+            deficiency=defic,
+            submitted_by=self.applicant_1,
+            description='Replaced pressure gauge and verified calibration certificate.',
+            status=DeficiencyRectification.STATUS_SUBMITTED,
+        )
+
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.timeline_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Corrections Submitted')
+        self.assertContains(resp, 'Replaced pressure gauge and verified calibration certificate.')
+
+    def test_08_approved_and_rejected_applications(self):
+        """Approved application shows Approved stage as completed; Rejected application shows Rejected with reason."""
+        self.client.force_login(self.applicant_1)
+
+        # 8a. Approved application
+        self.app.status = 'APPROVED'
+        self.app.save()
+        resp_app = self.client.get(self.timeline_url)
+        self.assertEqual(resp_app.status_code, 200)
+        self.assertContains(resp_app, 'Application Approved')
+        timeline_app = resp_app.context['timeline']
+        stage_decision = [s for s in timeline_app if s['id'] == 'final_decision'][0]
+        self.assertEqual(stage_decision['state'], 'completed')
+
+        # 8b. Rejected application
+        self.app.status = 'REJECTED'
+        self.app.remarks = 'Inadequate water reservoir capacity.'
+        self.app.save()
+        resp_rej = self.client.get(self.timeline_url)
+        self.assertEqual(resp_rej.status_code, 200)
+        self.assertContains(resp_rej, 'Application Rejected')
+        self.assertContains(resp_rej, 'Inadequate water reservoir capacity.')
+        timeline_rej = resp_rej.context['timeline']
+        stage_rej = [s for s in timeline_rej if s['id'] == 'final_decision'][0]
+        self.assertEqual(stage_rej['state'], 'rejected')
+
+    def test_09_application_with_an_issued_noc(self):
+        """Stage 9: NOC Issued appears only when an NOC actually exists or status is NOC_ISSUED."""
+        self.client.force_login(self.applicant_1)
+
+        # Before NOC is issued, stage 9 does not appear
+        self.app.status = 'APPROVED'
+        self.app.save()
+        resp_pre = self.client.get(self.timeline_url)
+        self.assertEqual(resp_pre.status_code, 200)
+        timeline_pre = resp_pre.context['timeline']
+        self.assertFalse(any(s['id'] == 'noc_issued' for s in timeline_pre))
+
+        # Once NOC status is set to NOC_ISSUED
+        self.app.status = 'NOC_ISSUED'
+        self.app.save()
+        resp_post = self.client.get(self.timeline_url)
+        self.assertEqual(resp_post.status_code, 200)
+        self.assertContains(resp_post, 'Fire NOC Issued')
+        timeline_post = resp_post.context['timeline']
+        self.assertTrue(any(s['id'] == 'noc_issued' for s in timeline_post))
+
+    def test_10_cross_applicant_isolation(self):
+        """Applicant 2 cannot access Applicant 1's timeline or details (returns 404)."""
+        self.client.force_login(self.applicant_2)
+        resp_timeline = self.client.get(self.timeline_url)
+        self.assertEqual(resp_timeline.status_code, 404)
+        resp_details = self.client.get(self.details_url)
+        self.assertEqual(resp_details.status_code, 404)
+
