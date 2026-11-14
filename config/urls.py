@@ -27,6 +27,9 @@ urlpatterns = [
     # Officer Module Routes
     path('officer/', include('officers.urls')),
 
+    # Admin Module Routes (Admin + Database + NOC)
+    path('admin-panel/', include('adminpanel.urls')),
+
     # Top-level My Applications route: /applications/
     path('applications/', my_applications, name='my_applications_root'),
     path('applications/<int:application_id>/', application_details, name='application_details_root'),
