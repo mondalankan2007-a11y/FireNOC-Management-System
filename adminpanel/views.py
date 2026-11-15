@@ -384,7 +384,17 @@ def noc_list(request):
     page = Paginator(certificates, 20).get_page(request.GET.get('page'))
     ready, blocked = queries.applications_awaiting_issue()
 
+    # Certificates approaching expiry, with whether a renewal has been filed.
+    # Shown on this screen rather than only in the nightly command, because an
+    # administrator deciding what to chase needs it in front of them.
+    renewals = [
+        (noc, services.has_renewal_application(noc))
+        for noc in services.certificates_due_for_renewal()[:20]
+    ]
+
     context = {
+        'renewals': renewals,
+        'renewal_window_days': services.RENEWAL_WINDOW_DAYS,
         'page': page,
         'search': search,
         'status': status,

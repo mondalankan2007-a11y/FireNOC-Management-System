@@ -1,5 +1,6 @@
 from datetime import date, time, timedelta
 from decimal import Decimal
+from io import StringIO
 from unittest import skipUnless
 
 from django.contrib.auth.models import User
@@ -2045,3 +2046,171 @@ class ApplicantFacingCertificateTests(TestCase):
         second = self.client.get(url).content
 
         self.assertEqual(first, second)
+
+
+class CertificateExpiryTests(TestCase):
+    """The sweep that marks lapsed certificates expired."""
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('exp1', 'e1@example.com', 'pw')
+        self.admin = User.objects.create_user(
+            'deptadmin14', 'admin14@example.com', 'pw', is_staff=True)
+        self.today = timezone.localdate()
+        AuditLog.objects.all().delete()
+
+    def _certificate(self, *, valid_until, status=NOC.STATUS_ACTIVE, address='12 MI Road'):
+        application = make_application(self.applicant, building_address=address)
+        return issue_noc(application, status=status,
+                         valid_from=valid_until - timedelta(days=365),
+                         valid_until=valid_until)
+
+    def test_a_lapsed_certificate_is_marked_expired(self):
+        noc = self._certificate(valid_until=self.today - timedelta(days=1))
+
+        expired = services.expire_due_certificates()
+
+        noc.refresh_from_db()
+        self.assertEqual([n.pk for n in expired], [noc.pk])
+        self.assertEqual(noc.status, NOC.STATUS_EXPIRED)
+
+    def test_a_certificate_expiring_today_is_still_valid(self):
+        # Validity runs to the end of the day it expires, so "today" is in
+        # date, not out of it.
+        noc = self._certificate(valid_until=self.today)
+
+        services.expire_due_certificates()
+
+        noc.refresh_from_db()
+        self.assertEqual(noc.status, NOC.STATUS_ACTIVE)
+
+    def test_a_future_certificate_is_untouched(self):
+        noc = self._certificate(valid_until=self.today + timedelta(days=30))
+
+        services.expire_due_certificates()
+
+        noc.refresh_from_db()
+        self.assertEqual(noc.status, NOC.STATUS_ACTIVE)
+
+    def test_a_revoked_certificate_is_not_overwritten(self):
+        # Withdrawal is a stronger statement than lapsing; overwriting it
+        # would lose the reason the certificate is not valid.
+        noc = self._certificate(valid_until=self.today - timedelta(days=10),
+                                status=NOC.STATUS_REVOKED)
+
+        services.expire_due_certificates()
+
+        noc.refresh_from_db()
+        self.assertEqual(noc.status, NOC.STATUS_REVOKED)
+
+    def test_expiry_is_audited_without_an_actor(self):
+        noc = self._certificate(valid_until=self.today - timedelta(days=1))
+
+        services.expire_due_certificates()
+
+        entry = AuditLog.objects.get(entity_type='NOC')
+        self.assertIsNone(entry.actor, 'the calendar expired it, not a person')
+        self.assertIn(noc.noc_number, entry.summary)
+        self.assertEqual(entry.changes['status'],
+                         {'from': 'ACTIVE', 'to': 'EXPIRED'})
+
+    def test_running_the_sweep_twice_changes_nothing_the_second_time(self):
+        self._certificate(valid_until=self.today - timedelta(days=1))
+
+        services.expire_due_certificates()
+        before = AuditLog.objects.count()
+        second = services.expire_due_certificates()
+
+        self.assertEqual(second, [])
+        self.assertEqual(AuditLog.objects.count(), before)
+
+    def test_the_command_reports_what_it_expired(self):
+        self._certificate(valid_until=self.today - timedelta(days=1))
+        output = StringIO()
+
+        call_command('expirenocs', stdout=output)
+
+        self.assertIn('1 certificate(s) expired', output.getvalue())
+
+    def test_dry_run_changes_nothing(self):
+        noc = self._certificate(valid_until=self.today - timedelta(days=1))
+        output = StringIO()
+
+        call_command('expirenocs', '--dry-run', stdout=output)
+
+        noc.refresh_from_db()
+        self.assertEqual(noc.status, NOC.STATUS_ACTIVE)
+        self.assertIn('would expire', output.getvalue())
+
+
+class RenewalTrackingTests(TestCase):
+    """Certificates approaching expiry, and whether a renewal was filed."""
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('ren1', 'r1@example.com', 'pw')
+        self.admin = User.objects.create_user(
+            'deptadmin15', 'admin15@example.com', 'pw', is_staff=True)
+        self.today = timezone.localdate()
+
+    def _certificate(self, days_ahead, address='12 MI Road'):
+        application = make_application(self.applicant, building_address=address)
+        valid_until = self.today + timedelta(days=days_ahead)
+        return issue_noc(application,
+                         valid_from=valid_until - timedelta(days=365),
+                         valid_until=valid_until)
+
+    def test_a_certificate_inside_the_window_is_listed(self):
+        noc = self._certificate(30)
+
+        due = services.certificates_due_for_renewal()
+        self.assertEqual([n.pk for n in due], [noc.pk])
+
+    def test_a_certificate_beyond_the_window_is_not(self):
+        self._certificate(200)
+
+        self.assertEqual(list(services.certificates_due_for_renewal()), [])
+
+    def test_an_already_lapsed_certificate_is_not_a_renewal_candidate(self):
+        # It needs expiring, not chasing; the sweep handles it.
+        self._certificate(-5)
+
+        self.assertEqual(list(services.certificates_due_for_renewal()), [])
+
+    def test_soonest_to_lapse_comes_first(self):
+        later = self._certificate(50, address='77 Station Road')
+        sooner = self._certificate(5, address='12 MI Road')
+
+        due = list(services.certificates_due_for_renewal())
+        self.assertEqual([n.pk for n in due], [sooner.pk, later.pk])
+
+    def test_a_filed_renewal_is_detected(self):
+        noc = self._certificate(20)
+        self.assertFalse(services.has_renewal_application(noc))
+
+        make_application(self.applicant, building_address='12 MI Road',
+                         application_type='RENEWAL')
+
+        self.assertTrue(services.has_renewal_application(noc))
+
+    def test_a_renewal_for_a_different_building_does_not_count(self):
+        noc = self._certificate(20)
+        make_application(self.applicant, building_address='99 Other Road',
+                         application_type='RENEWAL')
+
+        self.assertFalse(services.has_renewal_application(noc))
+
+    def test_a_rejected_renewal_does_not_count(self):
+        noc = self._certificate(20)
+        renewal = make_application(self.applicant, building_address='12 MI Road',
+                                   application_type='RENEWAL')
+        Application.objects.filter(pk=renewal.pk).update(status='REJECTED')
+
+        self.assertFalse(services.has_renewal_application(noc))
+
+    def test_the_screen_lists_certificates_due_for_renewal(self):
+        noc = self._certificate(20)
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('adminpanel:noc_list'))
+
+        self.assertEqual([n.pk for n, _ in response.context['renewals']], [noc.pk])
+        self.assertContains(response, 'Due for renewal')

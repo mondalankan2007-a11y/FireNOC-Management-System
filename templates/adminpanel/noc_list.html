@@ -92,6 +92,52 @@
     </div>
 </div>
 
+<!-- Due for renewal -->
+{% if renewals %}
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-4">
+        <h5 class="fw-bold mb-1">Due for renewal</h5>
+        <p class="text-muted small mb-3">
+            Certificates still valid but lapsing within {{ renewal_window_days }} days.
+            A renewal is a new application, so the ones with none filed are the
+            ones to chase.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr class="text-muted small text-uppercase">
+                        <th>Certificate</th><th>Building</th><th>Applicant</th>
+                        <th>Expires</th><th class="text-end">Renewal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for noc, renewal_filed in renewals %}
+                    <tr>
+                        <td class="small fw-semibold">{{ noc.noc_number }}</td>
+                        <td class="small text-truncate" style="max-width: 170px;">
+                            {{ noc.application.building_name }}
+                        </td>
+                        <td class="small text-muted">{{ noc.application.full_name }}</td>
+                        <td class="small">
+                            {{ noc.valid_until|date:"d M Y" }}
+                            <span class="text-muted">({{ noc.days_until_expiry }} days)</span>
+                        </td>
+                        <td class="text-end">
+                            {% if renewal_filed %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">Filed</span>
+                            {% else %}
+                                <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">Not filed</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Issued certificates -->
 <div class="card border-0 shadow-sm">
     <div class="card-body p-4">

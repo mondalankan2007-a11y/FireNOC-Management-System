@@ -6,8 +6,12 @@ without going through HTTP, and so a management command can later perform the
 same action without duplicating them.
 """
 
+from datetime import timedelta
+
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+
+from applicants.models import Application
 
 from officers.models import get_recommendation_eligibility
 
@@ -132,3 +136,83 @@ def issue_noc(application, *, actor=None, remarks='', ip_address=None):
         ip_address=ip_address)
 
     return noc
+
+
+# How far ahead a certificate counts as due for renewal. Chosen so that an
+# applicant has time to file a renewal application and the department has time
+# to inspect before the current certificate lapses.
+RENEWAL_WINDOW_DAYS = 60
+
+
+def expire_due_certificates(*, actor=None, today=None):
+    """
+    Mark certificates whose validity period has passed as expired.
+
+    A certificate expires because the calendar moves, not because anything
+    happens in the system, so nothing would ever notice without a sweep like
+    this. The model can already tell you a certificate is out of date — the
+    is_expired property compares dates — but the stored status is what reports,
+    filters and the applicant's badge read, and a property cannot be queried
+    or indexed.
+
+    Returns the certificates it changed. Revoked certificates are left alone:
+    withdrawal is a stronger statement than lapsing, and overwriting it would
+    lose the reason the certificate is not valid.
+    """
+    today = today or timezone.localdate()
+
+    due = list(NOC.objects.filter(
+        status=NOC.STATUS_ACTIVE, valid_until__lt=today
+    ).select_related('application'))
+
+    if not due:
+        return []
+
+    with transaction.atomic():
+        NOC.objects.filter(pk__in=[n.pk for n in due]).update(
+            status=NOC.STATUS_EXPIRED, updated_at=timezone.now())
+
+        for noc in due:
+            noc.status = NOC.STATUS_EXPIRED
+            AuditLog.record(
+                AuditLog.ACTION_UPDATE, AuditLog.ENTITY_NOC,
+                actor=actor, entity=noc,
+                summary=f'Certificate {noc.noc_number} expired on '
+                        f'{noc.valid_until:%d %b %Y}',
+                changes={'status': {'from': NOC.STATUS_ACTIVE,
+                                    'to': NOC.STATUS_EXPIRED},
+                         'valid_until': noc.valid_until.isoformat()})
+
+    return due
+
+
+def certificates_due_for_renewal(*, within_days=RENEWAL_WINDOW_DAYS, today=None):
+    """
+    Certificates still valid but close enough to expiry to need renewing.
+
+    Ordered by how soon they lapse, so the most urgent is first.
+    """
+    today = today or timezone.localdate()
+    return (NOC.objects
+            .filter(status=NOC.STATUS_ACTIVE,
+                    valid_until__gte=today,
+                    valid_until__lte=today + timedelta(days=within_days))
+            .select_related('application')
+            .order_by('valid_until'))
+
+
+def has_renewal_application(noc):
+    """
+    Whether the applicant has already filed a renewal for this building.
+
+    A renewal is a new application rather than a change to the certificate, so
+    the link between them is the building and the applicant, not a foreign key.
+    """
+    return (Application.objects
+            .filter(applicant=noc.application.applicant,
+                    building_address=noc.application.building_address,
+                    pin_code=noc.application.pin_code,
+                    application_type='RENEWAL',
+                    created_at__gt=noc.issued_at)
+            .exclude(status='REJECTED')
+            .exists())
