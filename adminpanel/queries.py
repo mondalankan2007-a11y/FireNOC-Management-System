@@ -11,7 +11,7 @@ from django.db import connection
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
-from officers.models import Inspection, OfficerProfile
+from officers.models import Deficiency, Inspection, OfficerProfile
 
 from .models import AuditLog
 
@@ -208,3 +208,19 @@ def officer_inspections(user, limit=25):
         .filter(officer=user)
         .select_related('application')
         .order_by('-scheduled_date', '-pk')[:limit])
+
+
+def officer_outstanding_work(user):
+    """
+    What would be left behind if this officer stopped acting now.
+
+    Used both to warn an administrator before deactivating and to record in
+    the audit entry what the state actually was at that moment, so the
+    decision can be judged later on what was known at the time.
+    """
+    return {
+        'scheduled_inspections': Inspection.objects.filter(
+            officer=user, status__in=['SCHEDULED', 'IN_PROGRESS']).count(),
+        'open_deficiencies': Deficiency.objects.filter(
+            reported_by=user, status='OPEN').count(),
+    }

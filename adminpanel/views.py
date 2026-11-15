@@ -7,6 +7,7 @@ from django.core.management.base import CommandError
 from django.core.paginator import Paginator
 from django.utils.http import urlencode
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
@@ -291,8 +292,85 @@ def officer_detail(request, profile_id):
         'workload': queries.officer_workload_map().get(profile.user_id),
         'inspections': queries.officer_inspections(profile.user),
         'activity': queries.officer_activity(profile.user),
+        'outstanding': queries.officer_outstanding_work(profile.user),
+        'is_active': profile.is_active and profile.user.is_active,
     }
     return render(request, 'adminpanel/officer_detail.html', context)
+
+
+@admin_required
+def officer_set_active(request, profile_id):
+    """
+    Activate or deactivate a fire officer.
+
+    Both the profile flag and the account flag are set together. Clearing only
+    OfficerProfile.is_active would leave the officer able to sign in while the
+    department considers them inactive, which is the kind of half-state that
+    causes incidents; clearing only the account would leave them listed as an
+    active officer who can never act.
+
+    Deactivation is permitted even when the officer has scheduled inspections,
+    because an administrator may need to remove access immediately — someone
+    leaving at short notice, or an account that must be locked. What the system
+    owes them is not a refusal but a clear warning beforehand and a record of
+    exactly what was outstanding, which the audit entry carries.
+    """
+    profile = get_object_or_404(
+        OfficerProfile.objects.select_related('user'), pk=profile_id)
+
+    if request.method != 'POST':
+        return redirect('adminpanel:officer_detail', profile_id=profile.pk)
+
+    action = request.POST.get('action')
+    if action not in ('activate', 'deactivate'):
+        messages.error(request, 'Unrecognised action.')
+        return redirect('adminpanel:officer_detail', profile_id=profile.pk)
+
+    activating = action == 'activate'
+    already = (profile.is_active and profile.user.is_active) if activating else (
+        not profile.is_active and not profile.user.is_active)
+    if already:
+        messages.info(
+            request,
+            f'{profile.officer_id} is already '
+            f'{"active" if activating else "deactivated"}.')
+        return redirect('adminpanel:officer_detail', profile_id=profile.pk)
+
+    outstanding = queries.officer_outstanding_work(profile.user)
+
+    with transaction.atomic():
+        profile.is_active = activating
+        profile.save(update_fields=['is_active', 'updated_at'])
+        profile.user.is_active = activating
+        profile.user.save(update_fields=['is_active'])
+
+        AuditLog.record(
+            AuditLog.ACTION_UPDATE, AuditLog.ENTITY_OFFICER,
+            actor=request.user, entity=profile,
+            summary=(
+                f'Officer {profile.officer_id} '
+                f'{"activated" if activating else "deactivated"}'
+                + ('' if activating or not outstanding['scheduled_inspections']
+                   else f", leaving {outstanding['scheduled_inspections']} "
+                        f"scheduled inspection(s) unassigned")),
+            changes={
+                'is_active': {'from': not activating, 'to': activating},
+                'outstanding': outstanding,
+            },
+            ip_address=_client_ip(request))
+
+    if activating:
+        messages.success(request, f'{profile.officer_id} has been reactivated.')
+    elif outstanding['scheduled_inspections']:
+        messages.warning(
+            request,
+            f"{profile.officer_id} has been deactivated. "
+            f"{outstanding['scheduled_inspections']} scheduled inspection(s) "
+            f"remain assigned to them and need reassigning.")
+    else:
+        messages.success(request, f'{profile.officer_id} has been deactivated.')
+
+    return redirect('adminpanel:officer_detail', profile_id=profile.pk)
 
 
 @admin_required

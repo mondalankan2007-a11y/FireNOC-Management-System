@@ -1368,3 +1368,134 @@ class OfficerManagementTests(TestCase):
         response = self.client.get(self.list_url)
 
         self.assertContains(response, f'/admin-panel/officers/{self.profile.pk}/')
+
+
+class OfficerActivationTests(TestCase):
+    """Activating and deactivating an officer, and what gets recorded."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin10', 'admin10@example.com', 'pw', is_staff=True)
+        self.user = User.objects.create_user('meera', 'meera@example.com', 'pw')
+        self.profile = OfficerProfile.objects.create(
+            user=self.user, officer_id='FO-202', designation='Inspector')
+        self.url = reverse('adminpanel:officer_set_active', args=[self.profile.pk])
+        self.detail_url = reverse('adminpanel:officer_detail', args=[self.profile.pk])
+        self.client.force_login(self.admin)
+        AuditLog.objects.all().delete()
+
+    def _refresh(self):
+        self.profile.refresh_from_db()
+        self.user.refresh_from_db()
+
+    def test_requires_an_administrator(self):
+        self.client.logout()
+
+        response = self.client.post(self.url, {'action': 'deactivate'})
+        self.assertRedirects(response, f'{reverse("adminpanel:login")}?next={self.url}')
+        self._refresh()
+        self.assertTrue(self.profile.is_active)
+
+    def test_get_does_not_change_anything(self):
+        response = self.client.get(self.url)
+
+        self.assertRedirects(response, self.detail_url)
+        self._refresh()
+        self.assertTrue(self.profile.is_active)
+
+    def test_deactivation_clears_both_the_profile_and_the_account(self):
+        response = self.client.post(self.url, {'action': 'deactivate'})
+
+        self.assertRedirects(response, self.detail_url)
+        self._refresh()
+        self.assertFalse(self.profile.is_active)
+        self.assertFalse(self.user.is_active, 'the account must be disabled too')
+
+    def test_deactivated_officer_cannot_sign_in(self):
+        self.client.post(self.url, {'action': 'deactivate'})
+        self.client.logout()
+
+        signed_in = self.client.login(username='meera', password='pw')
+        self.assertFalse(signed_in)
+
+    def test_reactivation_restores_both_flags(self):
+        self.client.post(self.url, {'action': 'deactivate'})
+
+        self.client.post(self.url, {'action': 'activate'})
+        self._refresh()
+        self.assertTrue(self.profile.is_active)
+        self.assertTrue(self.user.is_active)
+
+    def test_change_is_audited_against_the_administrator(self):
+        self.client.post(self.url, {'action': 'deactivate'})
+
+        entry = AuditLog.objects.get()
+        self.assertEqual(entry.actor, self.admin)
+        self.assertEqual(entry.entity_type, 'OFFICER')
+        self.assertIn('FO-202', entry.summary)
+        self.assertEqual(entry.changes['is_active'], {'from': True, 'to': False})
+
+    def test_outstanding_work_is_recorded_at_the_moment_of_the_decision(self):
+        applicant = User.objects.create_user('applicant21', 'a21@example.com', 'pw')
+        application = make_application(applicant)
+        Inspection.objects.create(
+            application=application, officer=self.user,
+            scheduled_date=date(2026, 12, 1), scheduled_time=time(10, 0),
+            status='SCHEDULED')
+
+        self.client.post(self.url, {'action': 'deactivate'})
+
+        entry = AuditLog.objects.get()
+        self.assertEqual(entry.changes['outstanding']['scheduled_inspections'], 1)
+        self.assertIn('scheduled inspection', entry.summary)
+
+    def test_deactivation_is_allowed_despite_outstanding_work_but_warns(self):
+        applicant = User.objects.create_user('applicant22', 'a22@example.com', 'pw')
+        application = make_application(applicant)
+        Inspection.objects.create(
+            application=application, officer=self.user,
+            scheduled_date=date(2026, 12, 1), scheduled_time=time(10, 0),
+            status='SCHEDULED')
+
+        response = self.client.post(self.url, {'action': 'deactivate'}, follow=True)
+
+        self._refresh()
+        self.assertFalse(self.profile.is_active)
+        warnings = [m.message for m in response.context['messages']
+                    if m.level_tag == 'warning']
+        self.assertTrue(any('need reassigning' in m for m in warnings), warnings)
+
+    def test_repeating_the_same_action_changes_nothing_and_is_not_audited(self):
+        self.client.post(self.url, {'action': 'activate'})
+
+        self.assertEqual(AuditLog.objects.count(), 0)
+        self._refresh()
+        self.assertTrue(self.profile.is_active)
+
+    def test_unrecognised_action_is_rejected(self):
+        response = self.client.post(self.url, {'action': 'delete'})
+
+        self.assertRedirects(response, self.detail_url)
+        self._refresh()
+        self.assertTrue(self.profile.is_active)
+        self.assertEqual(AuditLog.objects.count(), 0)
+
+    def test_detail_page_offers_the_right_control_for_the_current_state(self):
+        active = self.client.get(self.detail_url)
+        self.assertContains(active, 'Deactivate officer')
+        self.assertNotContains(active, 'Reactivate officer')
+
+        self.client.post(self.url, {'action': 'deactivate'})
+        inactive = self.client.get(self.detail_url)
+        self.assertContains(inactive, 'Reactivate officer')
+
+    def test_detail_page_warns_before_deactivating_someone_with_work(self):
+        applicant = User.objects.create_user('applicant23', 'a23@example.com', 'pw')
+        application = make_application(applicant)
+        Inspection.objects.create(
+            application=application, officer=self.user,
+            scheduled_date=date(2026, 12, 1), scheduled_time=time(10, 0),
+            status='SCHEDULED')
+
+        response = self.client.get(self.detail_url)
+        self.assertContains(response, 'will need reassigning')

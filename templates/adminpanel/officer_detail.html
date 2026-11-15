@@ -42,7 +42,7 @@
                     <dd class="fw-semibold">{{ profile.created_at|date:"d M Y" }}</dd>
 
                     <dt class="text-muted fw-normal">Status</dt>
-                    <dd class="mb-0">
+                    <dd class="mb-3">
                         {% if profile.is_active and officer.is_active %}
                             <span class="badge bg-success-subtle text-success border border-success-subtle">Active</span>
                         {% else %}
@@ -56,6 +56,77 @@
                         {% endif %}
                     </dd>
                 </dl>
+
+                <!-- Activation control -->
+                <hr class="my-3">
+                {% if is_active %}
+                    {% if outstanding.scheduled_inspections %}
+                    <div class="alert alert-warning small py-2 mb-3">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        {{ outstanding.scheduled_inspections }} scheduled
+                        inspection{{ outstanding.scheduled_inspections|pluralize }}
+                        {{ outstanding.scheduled_inspections|pluralize:"is,are" }}
+                        assigned to this officer and will need reassigning.
+                    </div>
+                    {% endif %}
+                    <button type="button" class="btn btn-outline-danger btn-sm w-100"
+                            data-bs-toggle="modal" data-bs-target="#deactivateOfficer">
+                        <i class="bi bi-person-dash me-1"></i>Deactivate officer
+                    </button>
+                {% else %}
+                    <form method="post" action="{% url 'adminpanel:officer_set_active' profile.pk %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="activate">
+                        <button type="submit" class="btn btn-outline-success btn-sm w-100">
+                            <i class="bi bi-person-check me-1"></i>Reactivate officer
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Deactivation confirmation -->
+    <div class="modal fade" id="deactivateOfficer" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Deactivate {{ profile.officer_id }}?</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">
+                        {{ officer.get_full_name|default:officer.username }} will no longer
+                        be able to sign in, and will stop appearing as an available officer.
+                    </p>
+                    {% if outstanding.scheduled_inspections or outstanding.open_deficiencies %}
+                    <div class="alert alert-warning small mb-2">
+                        <strong>Outstanding work</strong>
+                        <ul class="mb-0 ps-3">
+                            {% if outstanding.scheduled_inspections %}
+                            <li>{{ outstanding.scheduled_inspections }} scheduled or in-progress inspection{{ outstanding.scheduled_inspections|pluralize }}</li>
+                            {% endif %}
+                            {% if outstanding.open_deficiencies %}
+                            <li>{{ outstanding.open_deficiencies }} open deficienc{{ outstanding.open_deficiencies|pluralize:"y,ies" }} they raised</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                    <p class="small text-muted mb-0">
+                        This can be undone by reactivating them. The change is recorded
+                        in the audit log against your account.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <form method="post" action="{% url 'adminpanel:officer_set_active' profile.pk %}" class="m-0">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="deactivate">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-person-dash me-1"></i>Deactivate
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>

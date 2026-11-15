@@ -19,6 +19,8 @@ urlpatterns = [
     # Officer management
     path('officers/', views.officer_list, name='officer_list'),
     path('officers/<int:profile_id>/', views.officer_detail, name='officer_detail'),
+    path('officers/<int:profile_id>/set-active/', views.officer_set_active,
+         name='officer_set_active'),
 
     # Admin Module landing page
     path('', views.admin_home, name='admin_home'),
