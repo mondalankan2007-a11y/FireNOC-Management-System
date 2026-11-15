@@ -11,7 +11,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
-from . import queries, services, statistics
+from . import queries, services, statistics, verification
 from applicants.models import Application
 from officers.models import OfficerProfile
 
@@ -387,6 +387,9 @@ def noc_list(request):
     # project's secret, which the database does not have.
     for noc in page.object_list:
         noc.integrity_ok = noc.verify_integrity()
+        # The public address for this certificate, so an administrator can
+        # see what a visitor scanning the printed code is shown.
+        noc.verify_path = verification.verification_path(noc)
     ready, blocked = queries.applications_awaiting_issue()
 
     # Certificates approaching expiry, with whether a renewal has been filed.
@@ -437,6 +440,33 @@ def noc_issue(request, app_id):
         f'Fire NOC {noc.noc_number} issued for {application.application_id}, '
         f'valid until {noc.valid_until:%d %b %Y}.')
     return redirect('adminpanel:noc_list')
+
+
+def verify_certificate(request, number='', code=''):
+    """
+    Check a Fire NOC certificate. The one view in this module open to anyone.
+
+    Reached either by scanning the QR code on a printed certificate, which
+    carries both values in the address, or by typing them into the form.
+    Nothing is written and nothing is listed: a visitor can only ask about the
+    one certificate whose number and code they already hold.
+
+    No decorator, deliberately. Verification behind a sign-in would be
+    verification nobody performs.
+    """
+    submitted = request.method == 'POST' or bool(number)
+
+    if request.method == 'POST':
+        number = request.POST.get('number', '')
+        code = request.POST.get('code', '')
+
+    result = verification.check(number, code) if submitted else None
+
+    return render(request, 'verify/certificate.html', {
+        'result': result,
+        'number': number,
+        'code': code,
+    })
 
 
 @admin_required

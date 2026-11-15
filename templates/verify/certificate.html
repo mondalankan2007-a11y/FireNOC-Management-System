@@ -1,0 +1,185 @@
+{% extends 'base.html' %}
+
+{% block title %}Verify a Fire NOC Certificate{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-lg-8">
+
+            <div class="text-center mb-4">
+                <i class="bi bi-patch-check-fill text-danger fs-1"></i>
+                <h1 class="h3 fw-bold mt-2 mb-1">Verify a Fire NOC Certificate</h1>
+                <p class="text-muted mb-0">
+                    Check a certificate issued by the Department of Fire &amp; Emergency
+                    Services against the department's own record. No account needed.
+                </p>
+            </div>
+
+            {% if result %}
+                {% if result.is_valid %}
+                <div class="card border-0 shadow-sm mb-4 border-start border-4 border-success">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-shield-fill-check text-success fs-2 me-3"></i>
+                            <div>
+                                <h2 class="h5 fw-bold text-success mb-0">Genuine and currently valid</h2>
+                                <p class="text-muted small mb-0">
+                                    This certificate is on record, has not been withdrawn, and
+                                    its details match what was recorded when it was issued.
+                                </p>
+                            </div>
+                        </div>
+                {% elif result.is_expired %}
+                <div class="card border-0 shadow-sm mb-4 border-start border-4 border-secondary">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-clock-history text-secondary fs-2 me-3"></i>
+                            <div>
+                                <h2 class="h5 fw-bold text-secondary mb-0">Genuine, but no longer in force</h2>
+                                <p class="text-muted small mb-0">
+                                    The department issued this certificate, but its validity
+                                    period ended on {{ result.noc.valid_until|date:"d M Y" }}.
+                                    A renewal has to be applied for before the premises are
+                                    covered again.
+                                </p>
+                            </div>
+                        </div>
+                {% elif result.is_revoked %}
+                <div class="card border-0 shadow-sm mb-4 border-start border-4 border-danger">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-x-octagon-fill text-danger fs-2 me-3"></i>
+                            <div>
+                                <h2 class="h5 fw-bold text-danger mb-0">Withdrawn by the department</h2>
+                                <p class="text-muted small mb-0">
+                                    This certificate was issued and has since been revoked.
+                                    It must not be relied on, whatever the paper copy says.
+                                </p>
+                            </div>
+                        </div>
+                {% elif result.is_altered %}
+                <div class="card border-0 shadow-sm mb-4 border-start border-4 border-danger">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center mb-3">
+                            <i class="bi bi-shield-fill-exclamation text-danger fs-2 me-3"></i>
+                            <div>
+                                <h2 class="h5 fw-bold text-danger mb-0">Do not rely on this certificate</h2>
+                                <p class="text-muted small mb-0">
+                                    A certificate with this number exists, but its record no
+                                    longer matches the digest taken when it was issued, which
+                                    means something about it has been changed since. Report
+                                    this to the department before acting on the certificate.
+                                </p>
+                            </div>
+                        </div>
+                {% else %}
+                <div class="card border-0 shadow-sm mb-4 border-start border-4 border-warning">
+                    <div class="card-body p-4">
+                        <div class="d-flex align-items-center mb-0">
+                            <i class="bi bi-question-octagon-fill text-warning fs-2 me-3"></i>
+                            <div>
+                                <h2 class="h5 fw-bold mb-0">No certificate matches those details</h2>
+                                <p class="text-muted small mb-0">
+                                    Nothing on record matches that certificate number and
+                                    verification code together. Check both against the paper
+                                    copy — the code is printed beneath the certificate's QR
+                                    code. If they are correct as entered, treat the
+                                    certificate as unverified and contact the department.
+                                </p>
+                            </div>
+                        </div>
+                {% endif %}
+
+                {% if result.found %}
+                        <hr class="my-3">
+                        <p class="text-muted small mb-3">
+                            Compare these against the paper certificate. They are what the
+                            department recorded at issuance; anything the paper says
+                            differently has been altered after the fact.
+                        </p>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <div class="text-muted small text-uppercase">Certificate number</div>
+                                <div class="fw-semibold">{{ result.noc.noc_number }}</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="text-muted small text-uppercase">Application number</div>
+                                <div class="fw-semibold">{{ result.noc.application.application_id }}</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="text-muted small text-uppercase">Issued to</div>
+                                <div class="fw-semibold">{{ result.noc.application.full_name }}</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="text-muted small text-uppercase">Premises</div>
+                                <div class="fw-semibold">{{ result.noc.application.building_name }}</div>
+                                <div class="text-muted small">
+                                    {{ result.noc.application.building_address }},
+                                    {{ result.noc.application.city }} &ndash;
+                                    {{ result.noc.application.pin_code }}
+                                </div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="text-muted small text-uppercase">Issued on</div>
+                                <div class="fw-semibold">{{ result.noc.issued_at|date:"d M Y" }}</div>
+                            </div>
+                            <div class="col-sm-6">
+                                <div class="text-muted small text-uppercase">Valid until</div>
+                                <div class="fw-semibold">{{ result.noc.valid_until|date:"d M Y" }}</div>
+                            </div>
+                        </div>
+                {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="card border-0 shadow-sm">
+                <div class="card-body p-4">
+                    <h2 class="h6 fw-bold mb-1">
+                        {% if result %}Check another certificate{% else %}Enter the certificate details{% endif %}
+                    </h2>
+                    <p class="text-muted small mb-3">
+                        Both values are printed on the certificate. The verification code is
+                        the twelve characters shown with the QR code; it is what proves the
+                        person checking is holding the certificate, so it cannot be worked
+                        out from the number.
+                    </p>
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        <div class="row g-3 align-items-end">
+                            <div class="col-md-5">
+                                <label for="number" class="form-label small text-muted mb-1">
+                                    Certificate number
+                                </label>
+                                <input type="text" class="form-control" id="number" name="number"
+                                       value="{{ number }}" placeholder="FN/2026/00001"
+                                       autocomplete="off" required>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="code" class="form-label small text-muted mb-1">
+                                    Verification code
+                                </label>
+                                <input type="text" class="form-control text-uppercase" id="code" name="code"
+                                       value="{{ code }}" placeholder="A1B2C3D4E5F6"
+                                       autocomplete="off" maxlength="12" required>
+                            </div>
+                            <div class="col-md-3">
+                                <button type="submit" class="btn btn-danger w-100">
+                                    <i class="bi bi-search me-1"></i>Verify
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <p class="text-muted small text-center mt-4 mb-0">
+                Verification reads the department's own record. It does not create an
+                application and does not change the certificate in any way.
+            </p>
+
+        </div>
+    </div>
+</div>
+{% endblock %}

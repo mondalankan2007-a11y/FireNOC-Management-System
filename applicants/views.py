@@ -1457,6 +1457,20 @@ def generate_noc_pdf_bytes(application, noc=None):
             valid_until = "N/A"
         verification_code = _certificate_digest(cert_no, issue_date)
 
+    # A QR code leading to the public verification page, drawn only for a real
+    # certificate record: there is nothing for a scanner to check against when
+    # the certificate is derived from the application rather than issued.
+    #
+    # Imported here rather than at module level because the admin module
+    # imports this app's models, and a module-level import in the other
+    # direction would close the loop.
+    qr_matrix = None
+    if noc is not None:
+        from adminpanel import qr as qr_codes, verification
+
+        verify_url = verification.verification_url(noc)
+        qr_matrix = qr_codes.encode(verify_url)
+
     applicant_name = (
         application.full_name
         or application.applicant.get_full_name()
@@ -1501,7 +1515,24 @@ def generate_noc_pdf_bytes(application, noc=None):
         (50, 150, 8, f"Document generated via FireNOC Management Portal | Verification: {verification_code}"),
     ]
 
-    stream_parts = ["BT"]
+    if qr_matrix is not None:
+        lines.extend([
+            (145, 128, 10, "VERIFY THIS CERTIFICATE"),
+            (145, 113, 8, verify_url),
+            (145, 99, 8, "Scan the code alongside, or enter the certificate number and"),
+            (145, 86, 8, f"verification code {verification_code} at "
+                         f"{verification.verification_form_url()}"),
+        ])
+
+    stream_parts = []
+    if qr_matrix is not None:
+        # Rectangles, not an embedded image: this generator writes raw PDF
+        # with no imaging library behind it, and a module grid draws directly.
+        # Outside the text object below, because a text object may only
+        # contain text operators.
+        stream_parts.extend(
+            qr_codes.pdf_operators(qr_matrix, x=50, y=60, module=2.4))
+    stream_parts.append("BT")
     for x, y, size, text in lines:
         safe_text = str(text).replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
         stream_parts.append(f"/F1 {size} Tf")

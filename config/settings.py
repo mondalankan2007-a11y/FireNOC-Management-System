@@ -41,6 +41,14 @@ if DEBUG:
         if dev_host not in ALLOWED_HOSTS:
             ALLOWED_HOSTS.append(dev_host)
 
+# Where this site is reachable from, as an absolute address.
+#
+# Needed because the QR code printed on a Fire NOC certificate has to carry a
+# full URL: the certificate is read off paper, by someone who was never on
+# this site, long after the request that generated it has ended. Deployment
+# information rather than something the code can work out, hence a setting.
+SITE_BASE_URL = os.getenv('SITE_BASE_URL', 'http://localhost:8000')
+
 
 # Application definition
 

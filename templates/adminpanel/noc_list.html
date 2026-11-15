@@ -141,7 +141,11 @@
 <!-- Issued certificates -->
 <div class="card border-0 shadow-sm">
     <div class="card-body p-4">
-        <h5 class="fw-bold mb-3">Issued certificates</h5>
+        <h5 class="fw-bold mb-1">Issued certificates</h5>
+        <p class="text-muted small mb-3">
+            Each certificate's verification code links to the page anyone holding
+            the printed copy sees, which is also where its QR code leads.
+        </p>
 
         <form method="get" class="row g-2 align-items-end mb-3">
             <div class="col-md-6">
@@ -198,9 +202,11 @@
                         <td class="small text-muted">{{ noc.issued_by_label|default:"—" }}</td>
                         <td class="small">
                             {% if noc.integrity_ok %}
-                                <span class="text-success" title="Matches the digest recorded at issuance">
+                                <a class="text-success text-decoration-none"
+                                   href="{{ noc.verify_path }}" target="_blank" rel="noopener"
+                                   title="Matches the digest recorded at issuance. Opens the public verification page for this certificate.">
                                     <i class="bi bi-shield-check"></i> {{ noc.short_verification_code }}
-                                </span>
+                                </a>
                             {% elif noc.integrity_ok is None %}
                                 <span class="text-muted" title="Issued before digests were recorded">—</span>
                             {% else %}

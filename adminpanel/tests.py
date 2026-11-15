@@ -1,3 +1,4 @@
+import re
 from datetime import date, time, timedelta
 from decimal import Decimal
 from io import StringIO
@@ -16,7 +17,7 @@ from officers.models import (ApplicationReview, Deficiency, DocumentVerification
 
 from applicants.models import Application, ApplicationDocument
 
-from . import queries, services
+from . import qr, queries, services, verification
 from .models import NOC, ApplicantProfile, AuditLog, Building, PinCode
 from .signals import _sync_building
 
@@ -2332,3 +2333,405 @@ class CertificateIntegrityTests(TestCase):
             reverse('applicants:noc_certificate_pdf', args=[self.application.pk]))
 
         self.assertIn(noc.short_verification_code.encode(), response.content)
+
+
+# The expected module grid for one fixed string at one fixed mask, produced by
+# an independent reference implementation of the standard. The encoder in this
+# module was written from the specification rather than adapted from a
+# library, so it is checked against something that did not come from the same
+# head: if a single module of error correction, placement or masking is wrong,
+# this fixture no longer matches.
+GOLDEN_TEXT = 'http://localhost:8000/verify/FN-2026-00001/AB12CD34EF56/'
+GOLDEN_MASK = 3
+GOLDEN_MATRIX = [
+    '111111101100000110101011001111111',
+    '100000100000001101000001001000001',
+    '101110101001111100101001101011101',
+    '101110101101000010010000101011101',
+    '101110101111010001011100101011101',
+    '100000100100101001011100101000001',
+    '111111101010101010101010101111111',
+    '000000000101011001001011000000000',
+    '111100101000011011011001010011101',
+    '100100010100000110010101011000011',
+    '111001101000001101001111011111101',
+    '111011000001111100110011010010010',
+    '110011101101000001101110000010000',
+    '111111001011010001111100110100110',
+    '000101101110101001010100111101100',
+    '101010011000110010100100001010100',
+    '101100111011000101100101001011111',
+    '001101001100110110000111101111101',
+    '010001111101100101100110101101010',
+    '100100011100100111101010101010001',
+    '001100111001110000111110110000100',
+    '110100011110111000110111011001011',
+    '000111101111110011101101101001011',
+    '011100011100000000010011110101010',
+    '101011111100101111101001111110001',
+    '000000001111101101111011100010100',
+    '111111100011010011011011101011100',
+    '100000100011001010001100100011100',
+    '101110100010101000011101111111100',
+    '101110101100001000100000010000001',
+    '101110101100011110000000111001000',
+    '100000101011011011010000101100001',
+    '111111101110011010111110010010100',
+]
+
+
+class QRCodeEncoderTests(TestCase):
+    """
+    The QR encoder written for the certificate PDF.
+
+    A code that does not scan is worse than no code at all — it looks like the
+    department's system is broken to the one person trying to check a
+    certificate — so these tests check the output against a reference grid
+    rather than only checking that something was produced.
+    """
+
+    def test_it_reproduces_a_reference_grid_module_for_module(self):
+        rows = [''.join(str(bit) for bit in row)
+                for row in qr.encode(GOLDEN_TEXT, mask=GOLDEN_MASK)]
+
+        self.assertEqual(rows, GOLDEN_MATRIX)
+
+    def test_the_version_grows_with_the_data(self):
+        # Sizes are 17 + 4 x version, so these are versions 1 to 5.
+        for length, size in ((17, 21), (32, 25), (53, 29), (78, 33), (106, 37)):
+            with self.subTest(length=length):
+                self.assertEqual(len(qr.encode('x' * length)), size)
+
+    def test_data_beyond_the_supported_versions_is_refused(self):
+        # Refused rather than truncated or silently re-encoded: a code that
+        # carries the wrong URL is the one failure a scanner cannot report.
+        with self.assertRaises(ValueError):
+            qr.encode('x' * 107)
+
+    def test_the_finder_patterns_are_where_a_scanner_looks(self):
+        matrix = qr.encode(GOLDEN_TEXT)
+        size = len(matrix)
+
+        for row, col in ((0, 0), (0, size - 7), (size - 7, 0)):
+            with self.subTest(corner=(row, col)):
+                # Dark outer ring, light inner ring, dark 3x3 centre.
+                self.assertEqual(matrix[row][col], 1)
+                self.assertEqual(matrix[row + 1][col + 1], 0)
+                self.assertEqual(matrix[row + 3][col + 3], 1)
+
+        # The fourth corner must not carry one, or a scanner cannot tell which
+        # way up the code is.
+        corner = [row[size - 7:] for row in matrix[size - 7:]]
+        finder = [row[:7] for row in matrix[:7]]
+        self.assertNotEqual(corner, finder)
+
+    def test_every_mask_produces_the_same_function_patterns(self):
+        # Masking covers the data modules only. If it touched the finder or
+        # timing patterns the code would be unreadable whatever the data.
+        grids = [qr.encode(GOLDEN_TEXT, mask=mask) for mask in range(8)]
+
+        for grid in grids[1:]:
+            for index in range(8, len(grid) - 8):
+                self.assertEqual(grid[6][index], grids[0][6][index])
+                self.assertEqual(grid[index][6], grids[0][index][6])
+
+    def test_unforced_encoding_picks_one_of_the_eight_masks(self):
+        chosen = qr.encode(GOLDEN_TEXT)
+
+        self.assertIn(chosen, [qr.encode(GOLDEN_TEXT, mask=m) for m in range(8)])
+
+    def test_the_pdf_operators_cover_exactly_the_dark_modules(self):
+        matrix = qr.encode(GOLDEN_TEXT, mask=GOLDEN_MASK)
+
+        operators = qr.pdf_operators(matrix, x=50, y=60, module=2.5)
+
+        # Runs are merged, so there are fewer rectangles than dark modules,
+        # but their total area still accounts for every one of them.
+        rectangles = [op for op in operators if op.endswith('re f')]
+        dark = sum(sum(row) for row in matrix)
+        area = sum(float(op.split()[2]) * float(op.split()[3])
+                   for op in rectangles)
+        self.assertLess(len(rectangles), dark)
+        self.assertAlmostEqual(area, dark * 2.5 * 2.5, places=2)
+
+    def test_the_operators_stay_inside_the_requested_box(self):
+        matrix = qr.encode(GOLDEN_TEXT, mask=GOLDEN_MASK)
+        side = len(matrix) * 2.4
+
+        operators = qr.pdf_operators(matrix, x=50, y=60, module=2.4)
+
+        for op in (op for op in operators if op.endswith('re f')):
+            x, y, width, height = (float(value) for value in op.split()[:4])
+            self.assertGreaterEqual(x, 50)
+            self.assertGreaterEqual(y, 60)
+            self.assertLessEqual(x + width, 50 + side + 0.01)
+            self.assertLessEqual(y + height, 60 + side + 0.01)
+
+
+class CertificateVerificationTests(TestCase):
+    """
+    Checking a certificate with only what is printed on it.
+
+    The rules being tested are the ones that make the answer trustworthy: the
+    code is required so certificate numbers cannot be walked, expiry is judged
+    by the calendar rather than by a status another process maintains, and a
+    record that no longer matches its digest is reported as altered rather
+    than as valid.
+    """
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('ver1', 'v1@example.com', 'pw')
+        self.officer = User.objects.create_user('verofficer', 'vo@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=self.officer, officer_id='FO-601', designation='Inspector')
+        self.admin = User.objects.create_user(
+            'deptadmin17', 'admin17@example.com', 'pw', is_staff=True)
+        self.application = make_issuable_application(self.applicant, self.officer)
+        self.noc = services.issue_noc(self.application, actor=self.admin)
+        self.code = self.noc.short_verification_code
+
+    def test_a_genuine_certificate_verifies(self):
+        result = verification.check(self.noc.noc_number, self.code)
+
+        self.assertEqual(result.outcome, verification.VALID)
+        self.assertEqual(result.noc, self.noc)
+
+    def test_the_number_may_be_given_in_its_url_form(self):
+        slug = verification.slug_number(self.noc.noc_number)
+
+        self.assertNotIn('/', slug)
+        self.assertTrue(verification.check(slug, self.code).is_valid)
+
+    def test_case_and_spacing_do_not_matter(self):
+        result = verification.check(
+            f'  {self.noc.noc_number.lower()} ', f' {self.code.lower()}  ')
+
+        self.assertTrue(result.is_valid)
+
+    def test_the_number_alone_is_not_enough(self):
+        # Without this, certificate numbers run in sequence and anyone could
+        # read out every applicant's name and address.
+        result = verification.check(self.noc.noc_number, '')
+
+        self.assertEqual(result.outcome, verification.UNKNOWN)
+        self.assertIsNone(result.noc)
+
+    def test_a_wrong_code_answers_the_same_as_an_unknown_number(self):
+        wrong_code = verification.check(self.noc.noc_number, 'FFFFFFFFFFFF')
+        unknown_number = verification.check('FN/2026/90009', self.code)
+
+        self.assertEqual(wrong_code.outcome, verification.UNKNOWN)
+        self.assertEqual(unknown_number.outcome, verification.UNKNOWN)
+        self.assertIsNone(wrong_code.noc)
+
+    def test_a_revoked_certificate_is_reported_as_revoked(self):
+        NOC.objects.filter(pk=self.noc.pk).update(status=NOC.STATUS_REVOKED)
+
+        result = verification.check(self.noc.noc_number, self.code)
+
+        self.assertEqual(result.outcome, verification.REVOKED)
+        self.assertFalse(result.is_valid)
+
+    def test_expiry_is_judged_by_the_date_not_the_stored_status(self):
+        # The sweep that writes EXPIRED runs periodically, so on the day a
+        # certificate lapses the row still says ACTIVE. Reading the status
+        # alone would call it valid on exactly the day it stops being valid.
+        self.assertEqual(self.noc.status, NOC.STATUS_ACTIVE)
+
+        result = verification.check(
+            self.noc.noc_number, self.code,
+            today=self.noc.valid_until + timedelta(days=1))
+
+        self.assertEqual(result.outcome, verification.EXPIRED)
+
+    def test_an_altered_record_is_reported_as_altered(self):
+        NOC.objects.filter(pk=self.noc.pk).update(
+            valid_until=self.noc.valid_until + timedelta(days=365))
+
+        result = verification.check(self.noc.noc_number, self.code)
+
+        self.assertEqual(result.outcome, verification.ALTERED)
+        self.assertFalse(result.is_valid)
+
+    def test_a_certificate_with_no_digest_cannot_be_verified(self):
+        NOC.objects.filter(pk=self.noc.pk).update(integrity_hash='')
+
+        result = verification.check(self.noc.noc_number, self.code)
+
+        self.assertEqual(result.outcome, verification.UNKNOWN)
+
+    def test_the_printed_url_is_absolute_and_carries_both_values(self):
+        with self.settings(SITE_BASE_URL='https://firenoc.example.gov.in/'):
+            url = verification.verification_url(self.noc)
+
+        self.assertTrue(url.startswith('https://firenoc.example.gov.in/verify/'))
+        self.assertNotIn('//verify', url)
+        self.assertIn(self.code, url)
+        self.assertIn(verification.slug_number(self.noc.noc_number), url)
+
+
+class PublicVerificationPageTests(TestCase):
+    """
+    The verification page itself, which is the only page in this module that
+    does not require an account.
+    """
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('ver2', 'v2@example.com', 'pw')
+        self.officer = User.objects.create_user('verofficer2', 'vo2@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=self.officer, officer_id='FO-602', designation='Inspector')
+        self.admin = User.objects.create_user(
+            'deptadmin18', 'admin18@example.com', 'pw', is_staff=True)
+        self.application = make_issuable_application(self.applicant, self.officer)
+        self.noc = services.issue_noc(self.application, actor=self.admin)
+        self.code = self.noc.short_verification_code
+
+    def scan(self, noc=None, code=None):
+        noc = noc or self.noc
+        return self.client.get(reverse('verify:certificate', args=[
+            verification.slug_number(noc.noc_number), code or self.code]))
+
+    def test_the_form_is_reachable_without_signing_in(self):
+        response = self.client.get(reverse('verify:form'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Verify a Fire NOC Certificate')
+        # Nothing has been asked about yet, so no verdict is shown.
+        self.assertNotContains(response, 'Genuine')
+
+    def test_scanning_a_genuine_certificate_shows_it_is_valid(self):
+        response = self.scan()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Genuine and currently valid')
+        self.assertContains(response, self.noc.noc_number)
+        self.assertContains(response, self.application.building_name)
+
+    def test_the_page_shows_what_the_department_recorded(self):
+        # The visitor is holding paper that may have been altered, so the
+        # point is to put the recorded details in front of them to compare.
+        response = self.scan()
+
+        self.assertContains(response, self.application.application_id)
+        self.assertContains(response, self.application.full_name)
+        self.assertContains(response, self.application.pin_code)
+
+    def test_a_wrong_code_reveals_nothing_about_the_certificate(self):
+        response = self.scan(code='ABCDEF123456')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No certificate matches those details')
+        self.assertNotContains(response, self.application.full_name)
+        self.assertNotContains(response, self.application.building_address)
+
+    def test_a_revoked_certificate_is_not_presented_as_valid(self):
+        NOC.objects.filter(pk=self.noc.pk).update(status=NOC.STATUS_REVOKED)
+
+        response = self.scan()
+
+        self.assertContains(response, 'Withdrawn by the department')
+        self.assertNotContains(response, 'Genuine and currently valid')
+
+    def test_an_altered_certificate_is_called_out(self):
+        NOC.objects.filter(pk=self.noc.pk).update(
+            valid_until=self.noc.valid_until + timedelta(days=365))
+
+        response = self.scan()
+
+        self.assertContains(response, 'Do not rely on this certificate')
+
+    def test_a_lapsed_certificate_says_so(self):
+        # Issued two years ago rather than backdated afterwards: moving the
+        # dates of an existing certificate is tampering, and would be
+        # reported as such.
+        today = timezone.localdate()
+        old_application = make_issuable_application(
+            self.applicant, self.officer, building_address='12 Old Market Road')
+        lapsed = NOC.objects.create(
+            application=old_application,
+            noc_number='FN/2024/00042',
+            issued_at=timezone.now() - timedelta(days=400),
+            valid_from=today - timedelta(days=400),
+            valid_until=today - timedelta(days=35))
+        lapsed.integrity_hash = lapsed.compute_integrity_hash()
+        lapsed.save(update_fields=['integrity_hash'])
+
+        response = self.scan(noc=lapsed, code=lapsed.short_verification_code)
+
+        self.assertContains(response, 'no longer in force')
+
+    def test_the_details_can_be_typed_in_instead_of_scanned(self):
+        response = self.client.post(reverse('verify:form'), {
+            'number': self.noc.noc_number, 'code': self.code.lower()})
+
+        self.assertContains(response, 'Genuine and currently valid')
+
+    def test_an_empty_submission_is_not_reported_as_a_forgery(self):
+        response = self.client.post(reverse('verify:form'), {'number': '', 'code': ''})
+
+        self.assertContains(response, 'No certificate matches those details')
+        self.assertNotContains(response, 'Genuine and currently valid')
+
+    def test_verifying_changes_nothing(self):
+        # A public endpoint that wrote to the database would be a public way
+        # to fill it. Reading a certificate must leave no trace on it.
+        before = NOC.objects.get(pk=self.noc.pk)
+        audit_before = AuditLog.objects.count()
+
+        self.scan()
+
+        after = NOC.objects.get(pk=self.noc.pk)
+        self.assertEqual(after.status, before.status)
+        self.assertEqual(after.updated_at, before.updated_at)
+        self.assertEqual(AuditLog.objects.count(), audit_before)
+
+    def test_the_admin_screen_links_to_the_public_page(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('adminpanel:noc_list'))
+
+        self.assertContains(response, verification.verification_path(self.noc))
+
+    def test_the_certificate_pdf_carries_the_qr_code_and_its_address(self):
+        self.client.force_login(self.applicant)
+
+        with self.settings(SITE_BASE_URL='http://testserver'):
+            response = self.client.get(reverse(
+                'applicants:noc_certificate_pdf', args=[self.application.pk]))
+            expected_url = verification.verification_url(self.noc)
+
+        # The address a phone would be sent to, and the filled rectangles the
+        # code is drawn from.
+        self.assertIn(expected_url.encode(), response.content)
+        self.assertIn(b're f', response.content)
+
+    def test_the_code_printed_on_the_pdf_reads_back_as_the_one_encoded(self):
+        # The encoder is checked against a reference grid elsewhere. This
+        # checks the other half: that the rectangles written into the PDF
+        # reproduce that grid, right way up and at the right scale. Between
+        # the two there is no step left where a printed code could come out
+        # carrying something other than its certificate's address.
+        self.client.force_login(self.applicant)
+
+        with self.settings(SITE_BASE_URL='http://testserver'):
+            response = self.client.get(reverse(
+                'applicants:noc_certificate_pdf', args=[self.application.pk]))
+            expected = qr.encode(verification.verification_url(self.noc))
+
+        rectangles = re.findall(
+            r'([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+) re f',
+            response.content.decode('latin-1'))
+        self.assertTrue(rectangles)
+
+        # Read the grid back out of the page, using the same origin and module
+        # size the certificate is drawn with.
+        size, module, origin_x, origin_y = len(expected), 2.4, 50, 60
+        drawn = [[0] * size for _ in range(size)]
+        for x, y, width, _height in rectangles:
+            col = round((float(x) - origin_x) / module)
+            row = size - 1 - round((float(y) - origin_y) / module)
+            for offset in range(round(float(width) / module)):
+                drawn[row][col + offset] = 1
+
+        self.assertEqual(drawn, expected)
