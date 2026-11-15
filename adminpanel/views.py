@@ -130,6 +130,15 @@ def dashboard(request):
     """
     breakdown, precomputed = statistics.status_breakdown()
 
+    # The feed can be narrowed without leaving the dashboard. Unknown values
+    # are discarded rather than passed to the query.
+    entity_filter = request.GET.get('entity', '')
+    if entity_filter not in dict(AuditLog.ENTITY_CHOICES):
+        entity_filter = ''
+    action_filter = request.GET.get('action', '')
+    if action_filter not in dict(AuditLog.ACTION_CHOICES):
+        action_filter = ''
+
     context = {
         'counts': statistics.headline_counts(),
         'status_breakdown': breakdown,
@@ -138,6 +147,15 @@ def dashboard(request):
         'deficiencies': statistics.deficiency_summary(),
         'officers': statistics.officer_workload(),
         'oldest_waiting': statistics.oldest_waiting(),
+        'activity': statistics.recent_activity(
+            entity_type=entity_filter, action=action_filter),
+        'activity_counts': statistics.activity_counts(),
+        'activity_filters': {
+            'entity_types': AuditLog.ENTITY_CHOICES,
+            'selected_entity': entity_filter,
+            'actions': AuditLog.ACTION_CHOICES,
+            'selected_action': action_filter,
+        },
     }
     return render(request, 'adminpanel/dashboard.html', context)
 
@@ -149,16 +167,13 @@ def refresh_statistics(request):
         return redirect('adminpanel:dashboard')
 
     try:
-        call_command('refreshviews', verbosity=0)
+        call_command('refreshviews', verbosity=0, actor_id=request.user.pk)
     except CommandError as exc:
         messages.error(request, f'Statistics could not be refreshed: {exc}')
         return redirect('adminpanel:dashboard')
 
-    # refreshviews records the refresh itself; this entry adds the actor,
-    # which the command cannot know.
-    AuditLog.record(
-        AuditLog.ACTION_UPDATE, AuditLog.ENTITY_SYSTEM, actor=request.user,
-        summary=statistics.REFRESH_SUMMARY, ip_address=_client_ip(request))
+    # refreshviews writes the audit entry, with the actor passed through, so
+    # one refresh produces exactly one record however it was triggered.
     messages.success(request, 'Statistics refreshed.')
     return redirect('adminpanel:dashboard')
 

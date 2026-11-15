@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, time, timedelta
 from decimal import Decimal
 from unittest import skipUnless
 
@@ -7,6 +7,7 @@ from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from officers.models import Deficiency, Inspection, OfficerProfile
 
@@ -940,3 +941,104 @@ class DashboardStatisticsSourceTests(TestCase):
 
         response = self.client.post(reverse('adminpanel:refresh_statistics'))
         self.assertRedirects(response, reverse('home'))
+
+
+class RefreshAuditTests(TestCase):
+    """One refresh must produce exactly one audit entry, whichever route ran it."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin5', 'admin5@example.com', 'pw', is_staff=True)
+        AuditLog.objects.all().delete()
+
+    @skipUnless(connection.vendor == 'postgresql', 'needs the materialized view')
+    def test_dashboard_refresh_records_one_entry_with_the_actor(self):
+        self.client.force_login(self.admin)
+
+        self.client.post(reverse('adminpanel:refresh_statistics'))
+
+        entry = AuditLog.objects.get(summary='Reporting statistics refreshed')
+        self.assertEqual(entry.actor, self.admin)
+
+    @skipUnless(connection.vendor == 'postgresql', 'needs the materialized view')
+    def test_command_line_refresh_records_one_entry_without_an_actor(self):
+        call_command('refreshviews', '--blocking', verbosity=0)
+
+        entry = AuditLog.objects.get(summary='Reporting statistics refreshed')
+        self.assertIsNone(entry.actor)
+
+
+class ActivityFeedTests(TestCase):
+    """The recent-activity feed on the dashboard."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin6', 'admin6@example.com', 'pw', is_staff=True)
+        self.applicant = User.objects.create_user(
+            'applicant18', 'a18@example.com', 'pw')
+        self.url = reverse('adminpanel:dashboard')
+        AuditLog.objects.all().delete()
+
+    def test_feed_shows_recorded_entries_newest_first(self):
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                        actor=self.applicant, entity_id=1, summary='older')
+        AuditLog.record(AuditLog.ACTION_APPROVE, AuditLog.ENTITY_APPLICATION,
+                        actor=self.admin, entity_id=1, summary='newer')
+        self.client.force_login(self.admin)
+
+        activity = self.client.get(self.url).context['activity']
+        self.assertEqual([e.summary for e in activity], ['newer', 'older'])
+
+    def test_feed_can_be_filtered_by_entity(self):
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                        entity_id=1, summary='an application')
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_INSPECTION,
+                        entity_id=2, summary='an inspection')
+        self.client.force_login(self.admin)
+
+        activity = self.client.get(self.url, {'entity': 'INSPECTION'}).context['activity']
+        self.assertEqual([e.summary for e in activity], ['an inspection'])
+
+    def test_feed_can_be_filtered_by_action(self):
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                        entity_id=1, summary='created')
+        AuditLog.record(AuditLog.ACTION_REJECT, AuditLog.ENTITY_APPLICATION,
+                        entity_id=1, summary='rejected')
+        self.client.force_login(self.admin)
+
+        activity = self.client.get(self.url, {'action': 'REJECT'}).context['activity']
+        self.assertEqual([e.summary for e in activity], ['rejected'])
+
+    def test_unknown_filter_values_are_ignored_not_passed_to_the_query(self):
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                        entity_id=1, summary='kept')
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.url, {'entity': 'NOT_A_TYPE',
+                                              'action': 'NOT_AN_ACTION'})
+        self.assertEqual([e.summary for e in response.context['activity']], ['kept'])
+        self.assertEqual(response.context['activity_filters']['selected_entity'], '')
+
+    def test_activity_counts_cover_the_last_seven_days(self):
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                        entity_id=1, summary='recent')
+        old = AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                              entity_id=2, summary='old')
+        AuditLog.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(days=30))
+        self.client.force_login(self.admin)
+
+        counts = self.client.get(self.url).context['activity_counts']
+        self.assertEqual(counts, [('CREATE', 1)])
+
+    @skipUnless(connection.vendor == 'postgresql', 'needs the audit triggers')
+    def test_trigger_written_entries_appear_without_an_actor(self):
+        application = make_application(self.applicant)
+        AuditLog.objects.all().delete()
+        Application.objects.filter(pk=application.pk).update(status='APPROVED')
+        self.client.force_login(self.admin)
+
+        activity = self.client.get(self.url).context['activity']
+        self.assertEqual(len(activity), 1)
+        self.assertIsNone(activity[0].actor)
+        self.assertEqual(activity[0].actor_label, 'database trigger')

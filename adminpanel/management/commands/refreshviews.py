@@ -18,6 +18,11 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
+            '--actor-id', type=int, default=None,
+            help='User who asked for the refresh, recorded in the audit entry. '
+                 'Omitted when the command is run from the command line, where '
+                 'there is no user to attribute it to.')
+        parser.add_argument(
             '--blocking', action='store_true',
             help='Refresh without CONCURRENTLY, taking an exclusive lock. '
                  'Needed the first time, when the view has never been populated.')
@@ -42,9 +47,17 @@ class Command(BaseCommand):
                     cursor.execute(f'REFRESH MATERIALIZED VIEW {view}')
             self.stdout.write(self.style.SUCCESS(f'  refreshed {view}'))
 
-        # Recorded so the dashboard can report how fresh its figures are,
-        # whichever route performed the refresh.
+        # One entry per refresh, whichever route performed it, so the
+        # dashboard can report how fresh its figures are. The actor is passed
+        # in by the caller: run from a terminal there is nobody to attribute
+        # it to, and a null actor says so honestly.
+        from django.contrib.auth.models import User
+
         from adminpanel.models import AuditLog
         from adminpanel.statistics import REFRESH_SUMMARY
+
+        actor = None
+        if options['actor_id'] is not None:
+            actor = User.objects.filter(pk=options['actor_id']).first()
         AuditLog.record(AuditLog.ACTION_UPDATE, AuditLog.ENTITY_SYSTEM,
-                        summary=REFRESH_SUMMARY)
+                        actor=actor, summary=REFRESH_SUMMARY)

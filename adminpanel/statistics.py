@@ -16,8 +16,11 @@ On a database without the views — the SQLite development fallback — each
 function degrades to an ORM aggregate rather than failing.
 """
 
+from datetime import timedelta
+
 from django.db import connection
 from django.db.models import Count
+from django.utils import timezone
 
 from applicants.models import Application
 from officers.models import Deficiency, Inspection, OfficerProfile
@@ -133,3 +136,34 @@ def oldest_waiting(limit=5):
          order by age_in_days desc
          limit {int(limit)}
     """)
+
+
+def recent_activity(limit=12, entity_type=None, action=None):
+    """
+    Latest audit entries for the dashboard feed.
+
+    Read through the ORM rather than a view, because this is a plain indexed
+    lookup on (action, created_at) or a filtered scan of a small ordered table
+    — the kind of query an index already answers well.
+
+    Entries come from two sources and read differently: the application layer
+    names the user responsible, while a database trigger records that a change
+    happened without being able to attribute it. The feed shows both, labelled.
+    """
+    entries = AuditLog.objects.select_related('actor')
+    if entity_type:
+        entries = entries.filter(entity_type=entity_type)
+    if action:
+        entries = entries.filter(action=action)
+    return list(entries[:limit])
+
+
+def activity_counts(days=7):
+    """How many actions were recorded per action type over a recent window."""
+    since = timezone.now() - timedelta(days=days)
+    rows = (AuditLog.objects
+            .filter(created_at__gte=since)
+            .values('action')
+            .annotate(total=Count('id'))
+            .order_by('-total'))
+    return [(r['action'], r['total']) for r in rows]

@@ -212,5 +212,99 @@
             </div>
         </div>
     </div>
+
+    <!-- Recent activity -->
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                    <div>
+                        <h5 class="fw-bold mb-1">Recent activity</h5>
+                        <p class="text-muted small mb-0">
+                            <i class="bi bi-journal-text me-1"></i>
+                            From <code>adminpanel_auditlog</code>. Entries written by the
+                            application name the person responsible; entries written by a
+                            database trigger prove a change happened without being able to.
+                        </p>
+                    </div>
+
+                    <form method="get" class="d-flex gap-2 align-items-center">
+                        <select name="entity" class="form-select form-select-sm" style="width: auto;">
+                            <option value="">All records</option>
+                            {% for value, label in activity_filters.entity_types %}
+                            <option value="{{ value }}" {% if activity_filters.selected_entity == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <select name="action" class="form-select form-select-sm" style="width: auto;">
+                            <option value="">All actions</option>
+                            {% for value, label in activity_filters.actions %}
+                            <option value="{{ value }}" {% if activity_filters.selected_action == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">Filter</button>
+                        {% if activity_filters.selected_entity or activity_filters.selected_action %}
+                        <a href="{% url 'adminpanel:dashboard' %}" class="btn btn-link btn-sm text-muted px-1">Clear</a>
+                        {% endif %}
+                    </form>
+                </div>
+
+                {% if activity_counts %}
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <span class="text-muted small align-self-center me-1">Last 7 days:</span>
+                    {% for action, total in activity_counts %}
+                    <span class="badge bg-light text-dark border">{{ action }} <strong>{{ total }}</strong></span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if activity %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr class="text-muted small text-uppercase">
+                                <th>When</th><th>Who</th><th>Action</th>
+                                <th>Record</th><th>Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in activity %}
+                            <tr>
+                                <td class="small text-muted text-nowrap">{{ entry.created_at|timesince }} ago</td>
+                                <td class="small">
+                                    {% if entry.actor %}
+                                        <i class="bi bi-person-circle text-muted me-1"></i>{{ entry.actor_label }}
+                                    {% else %}
+                                        <span class="text-muted" title="Recorded by a database trigger, which cannot know the user">
+                                            <i class="bi bi-hdd-stack me-1"></i>{{ entry.actor_label|default:'system' }}
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge {% if entry.action == 'REJECT' or entry.action == 'REVOKE' %}bg-danger-subtle text-danger border border-danger-subtle{% elif entry.action == 'APPROVE' or entry.action == 'ISSUE' %}bg-success-subtle text-success border border-success-subtle{% else %}bg-light text-dark border{% endif %} small">
+                                        {{ entry.get_action_display }}
+                                    </span>
+                                </td>
+                                <td class="small">
+                                    <span class="text-muted">{{ entry.get_entity_type_display }}</span>
+                                    {% if entry.entity_label %}<br><span class="fw-semibold">{{ entry.entity_label }}</span>{% endif %}
+                                </td>
+                                <td class="small text-muted" style="max-width: 320px;">{{ entry.summary }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">
+                    {% if activity_filters.selected_entity or activity_filters.selected_action %}
+                        No activity matches that filter.
+                    {% else %}
+                        Nothing has been recorded yet.
+                    {% endif %}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
