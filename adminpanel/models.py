@@ -1,3 +1,7 @@
+import hashlib
+import hmac
+
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -389,6 +393,13 @@ class NOC(models.Model):
         help_text="Who issued it, as text, so the record survives account deletion"
     )
     remarks = models.TextField(blank=True, default='')
+    integrity_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text="Keyed digest of the certificate's own fields, written at "
+                  "issuance; recomputing it detects later alteration"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -447,6 +458,68 @@ class NOC(models.Model):
     @property
     def days_until_expiry(self):
         return (self.valid_until - timezone.localdate()).days
+
+    # -------------------------------------------------------------- integrity
+
+    def integrity_payload(self):
+        """
+        The exact bytes the digest is taken over.
+
+        Each field is one that a forger would have to change to make a
+        certificate say something it did not: which certificate it is, which
+        application it belongs to, who it was issued to, which building it
+        covers, when it was issued and how long it runs.
+
+        The separator is a character that cannot appear in any of these
+        values, so no combination of fields can be rearranged to produce the
+        same payload as a different combination.
+        """
+        application = self.application
+        return '\x1f'.join([
+            self.noc_number,
+            application.application_id or str(application.pk),
+            application.full_name,
+            application.building_name,
+            application.building_address,
+            application.pin_code,
+            self.issued_at.isoformat(),
+            self.valid_from.isoformat(),
+            self.valid_until.isoformat(),
+        ])
+
+    def compute_integrity_hash(self):
+        """
+        A keyed digest of this certificate, using the project's secret key.
+
+        HMAC rather than a plain hash, deliberately. A plain SHA-256 of the
+        fields could be recomputed by anyone who could alter the row: change
+        the expiry date, recompute the digest, store both, and the forgery
+        verifies. An HMAC cannot be recomputed without the server's secret, so
+        altering any field leaves a digest that no longer matches and cannot
+        be repaired from outside the application.
+        """
+        return hmac.new(
+            settings.SECRET_KEY.encode(),
+            self.integrity_payload().encode(),
+            hashlib.sha256,
+        ).hexdigest()
+
+    def verify_integrity(self):
+        """
+        Whether this certificate still matches the digest stored at issuance.
+
+        Compared with compare_digest rather than ==, so the time taken does
+        not depend on how much of the digest matched.
+        """
+        if not self.integrity_hash:
+            return None  # issued before digests were recorded
+        return hmac.compare_digest(
+            self.integrity_hash, self.compute_integrity_hash())
+
+    @property
+    def short_verification_code(self):
+        """The first twelve characters of the digest, for printing."""
+        return self.integrity_hash[:12].upper() if self.integrity_hash else ''
 
     # ---------------------------------------------------------------- numbers
 

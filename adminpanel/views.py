@@ -382,6 +382,11 @@ def noc_list(request):
 
     certificates = queries.issued_certificates(search=search, status=status)
     page = Paginator(certificates, 20).get_page(request.GET.get('page'))
+
+    # Verified per row rather than in SQL: the digest is keyed with the
+    # project's secret, which the database does not have.
+    for noc in page.object_list:
+        noc.integrity_ok = noc.verify_integrity()
     ready, blocked = queries.applications_awaiting_issue()
 
     # Certificates approaching expiry, with whether a renewal has been filed.

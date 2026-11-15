@@ -2214,3 +2214,121 @@ class RenewalTrackingTests(TestCase):
 
         self.assertEqual([n.pk for n, _ in response.context['renewals']], [noc.pk])
         self.assertContains(response, 'Due for renewal')
+
+
+class CertificateIntegrityTests(TestCase):
+    """
+    The keyed digest recorded at issuance.
+
+    The point of it is not that a certificate can be checked — that would be
+    true of any hash — but that it cannot be repaired by whoever altered the
+    record, because the key is not in the database.
+    """
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('int1', 'i1@example.com', 'pw')
+        self.officer = User.objects.create_user('intofficer', 'io@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=self.officer, officer_id='FO-501', designation='Inspector')
+        self.admin = User.objects.create_user(
+            'deptadmin16', 'admin16@example.com', 'pw', is_staff=True)
+        self.application = make_issuable_application(self.applicant, self.officer)
+
+    def test_issuing_records_a_digest(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        self.assertEqual(len(noc.integrity_hash), 64)
+        self.assertTrue(noc.verify_integrity())
+
+    def test_an_untouched_certificate_verifies_after_reloading(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        reloaded = NOC.objects.get(pk=noc.pk)
+        self.assertTrue(reloaded.verify_integrity())
+
+    def test_changing_the_expiry_date_breaks_verification(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        NOC.objects.filter(pk=noc.pk).update(
+            valid_until=noc.valid_until + timedelta(days=365))
+
+        self.assertFalse(NOC.objects.get(pk=noc.pk).verify_integrity())
+
+    def test_changing_the_certificate_number_breaks_verification(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        NOC.objects.filter(pk=noc.pk).update(noc_number='FN/2026/99999')
+
+        self.assertFalse(NOC.objects.get(pk=noc.pk).verify_integrity())
+
+    def test_changing_the_building_on_the_application_breaks_verification(self):
+        # The digest covers the application's identifying details too, so a
+        # certificate cannot be quietly re-pointed at a different building.
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        Application.objects.filter(pk=self.application.pk).update(
+            building_address='99 Somewhere Else')
+
+        self.assertFalse(NOC.objects.get(pk=noc.pk).verify_integrity())
+
+    def test_harmless_edits_do_not_break_verification(self):
+        # Remarks are not part of what the certificate asserts, so editing
+        # them must not look like tampering.
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        Application.objects.filter(pk=self.application.pk).update(
+            remarks='Clerical note added later')
+
+        self.assertTrue(NOC.objects.get(pk=noc.pk).verify_integrity())
+
+    def test_the_digest_depends_on_the_secret_key(self):
+        # This is what a plain hash would not give: an attacker who can edit
+        # the row still cannot recompute a matching digest.
+        noc = services.issue_noc(self.application, actor=self.admin)
+        genuine = noc.compute_integrity_hash()
+
+        with self.settings(SECRET_KEY='a-different-secret-entirely'):
+            self.assertNotEqual(noc.compute_integrity_hash(), genuine)
+
+    def test_a_certificate_without_a_digest_reports_unknown_not_invalid(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+        NOC.objects.filter(pk=noc.pk).update(integrity_hash='')
+
+        self.assertIsNone(NOC.objects.get(pk=noc.pk).verify_integrity())
+
+    def test_two_certificates_have_different_digests(self):
+        second = make_issuable_application(
+            self.applicant, self.officer, building_address='77 Station Road')
+
+        first_noc = services.issue_noc(self.application, actor=self.admin)
+        second_noc = services.issue_noc(second, actor=self.admin)
+
+        self.assertNotEqual(first_noc.integrity_hash, second_noc.integrity_hash)
+
+    def test_the_screen_flags_an_altered_certificate(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+        NOC.objects.filter(pk=noc.pk).update(
+            valid_until=noc.valid_until + timedelta(days=365))
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('adminpanel:noc_list'))
+
+        self.assertContains(response, 'Altered')
+
+    def test_the_screen_shows_the_code_for_a_sound_certificate(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse('adminpanel:noc_list'))
+
+        self.assertContains(response, noc.short_verification_code)
+        self.assertNotContains(response, 'Altered')
+
+    def test_the_pdf_prints_the_verification_code(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+        self.client.force_login(self.applicant)
+
+        response = self.client.get(
+            reverse('applicants:noc_certificate_pdf', args=[self.application.pk]))
+
+        self.assertIn(noc.short_verification_code.encode(), response.content)

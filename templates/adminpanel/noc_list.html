@@ -180,7 +180,7 @@
                     <tr class="text-muted small text-uppercase">
                         <th>Certificate</th><th>Application</th><th>Building</th>
                         <th>Issued</th><th>Valid until</th><th>Issued by</th>
-                        <th class="text-end">Status</th>
+                        <th>Integrity</th><th class="text-end">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -196,6 +196,19 @@
                             {{ noc.valid_until|date:"d M Y" }}
                         </td>
                         <td class="small text-muted">{{ noc.issued_by_label|default:"—" }}</td>
+                        <td class="small">
+                            {% if noc.integrity_ok %}
+                                <span class="text-success" title="Matches the digest recorded at issuance">
+                                    <i class="bi bi-shield-check"></i> {{ noc.short_verification_code }}
+                                </span>
+                            {% elif noc.integrity_ok is None %}
+                                <span class="text-muted" title="Issued before digests were recorded">—</span>
+                            {% else %}
+                                <span class="text-danger fw-semibold" title="This record no longer matches the digest recorded at issuance">
+                                    <i class="bi bi-shield-exclamation"></i> Altered
+                                </span>
+                            {% endif %}
+                        </td>
                         <td class="text-end">
                             {% if noc.is_currently_valid %}
                                 <span class="badge bg-success-subtle text-success border border-success-subtle">Valid</span>

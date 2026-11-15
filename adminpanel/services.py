@@ -110,6 +110,10 @@ def issue_noc(application, *, actor=None, remarks='', ip_address=None):
                         if actor is not None else ''),
                     remarks=remarks,
                 )
+                # Written in the same transaction as the certificate, so a
+                # record can never exist without its digest.
+                noc.integrity_hash = noc.compute_integrity_hash()
+                noc.save(update_fields=['integrity_hash'])
             break
         except IntegrityError:
             if attempt == 4:

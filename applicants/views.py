@@ -1442,6 +1442,11 @@ def generate_noc_pdf_bytes(application, noc=None):
         cert_no = noc.noc_number
         issue_date = noc.issued_at.strftime("%d-%b-%Y")
         valid_until = noc.valid_until.strftime("%d-%b-%Y")
+        # The code printed here is part of the keyed digest recorded when the
+        # certificate was issued, so it cannot be reproduced for a forged
+        # certificate without the server's secret key.
+        verification_code = noc.short_verification_code or _certificate_digest(
+            cert_no, issue_date)
     else:
         cert_no = application.application_id or f"NOC-{application.pk:04d}"
         issue_date = application.updated_at.strftime("%d-%b-%Y")
@@ -1450,6 +1455,7 @@ def generate_noc_pdf_bytes(application, noc=None):
             valid_until = (application.updated_at + datetime.timedelta(days=365 * valid_years)).strftime("%d-%b-%Y")
         except Exception:
             valid_until = "N/A"
+        verification_code = _certificate_digest(cert_no, issue_date)
 
     applicant_name = (
         application.full_name
@@ -1492,7 +1498,7 @@ def generate_noc_pdf_bytes(application, noc=None):
         # same certificate printed a different "verification" number after
         # every server restart. A digest of the certificate's own identity is
         # stable and reproducible.
-        (50, 150, 8, f"Document generated via FireNOC Management Portal | Verification: {_certificate_digest(cert_no, issue_date)}"),
+        (50, 150, 8, f"Document generated via FireNOC Management Portal | Verification: {verification_code}"),
     ]
 
     stream_parts = ["BT"]
