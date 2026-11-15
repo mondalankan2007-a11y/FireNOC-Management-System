@@ -13,6 +13,7 @@ from officers.models import Deficiency, Inspection, OfficerProfile
 
 from applicants.models import Application
 
+from . import queries
 from .models import ApplicantProfile, AuditLog, Building, PinCode
 from .signals import _sync_building
 
@@ -1042,3 +1043,113 @@ class ActivityFeedTests(TestCase):
         self.assertEqual(len(activity), 1)
         self.assertIsNone(activity[0].actor)
         self.assertEqual(activity[0].actor_label, 'database trigger')
+
+
+class ApplicantListTests(TestCase):
+    """The applicant management listing: who appears, search, filters, paging."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin7', 'admin7@example.com', 'pw', is_staff=True)
+        self.url = reverse('adminpanel:applicant_list')
+
+        self.alice = User.objects.create_user(
+            'alice', 'alice@example.com', 'pw',
+            first_name='Alice', last_name='Kumar')
+        self.bob = User.objects.create_user(
+            'bob', 'bob@example.com', 'pw', first_name='Bob', last_name='Singh')
+        make_application(self.alice)
+        self.client.force_login(self.admin)
+
+    def _listed(self, **params):
+        response = self.client.get(self.url, params)
+        return [u.username for u in response.context['page'].object_list]
+
+    def test_requires_an_administrator(self):
+        self.client.logout()
+        self.assertRedirects(self.client.get(self.url),
+                             f'{reverse("adminpanel:login")}?next={self.url}')
+
+    def test_applicants_are_listed_with_their_application_count(self):
+        response = self.client.get(self.url)
+        listed = {u.username: u.application_count
+                  for u in response.context['page'].object_list}
+
+        self.assertEqual(listed, {'alice': 1, 'bob': 0})
+
+    def test_applicant_who_never_applied_still_appears(self):
+        self.assertIn('bob', self._listed())
+
+    def test_officers_and_administrators_are_excluded(self):
+        officer = User.objects.create_user('officer11', 'o11@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=officer, officer_id='FO-011', designation='Inspector')
+
+        listed = self._listed()
+        self.assertNotIn('officer11', listed)
+        self.assertNotIn('deptadmin7', listed)
+
+    def test_search_matches_name_email_and_username(self):
+        for term in ('Alice', 'alice@example.com', 'alice'):
+            self.assertEqual(self._listed(q=term), ['alice'], term)
+
+    def test_search_matches_the_mobile_number_on_the_profile(self):
+        profile = ApplicantProfile.objects.get(user=self.alice)
+        profile.mobile_number = '9876543210'
+        profile.save()
+
+        self.assertEqual(self._listed(q='98765'), ['alice'])
+
+    def test_search_matches_an_application_number(self):
+        application = self.alice.fire_noc_applications.get()
+
+        self.assertEqual(self._listed(q=application.application_id), ['alice'])
+
+    def test_search_returning_nothing_is_not_an_error(self):
+        response = self.client.get(self.url, {'q': 'nobody-by-that-name'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['total'], 0)
+
+    def test_filter_by_whether_they_have_applied(self):
+        self.assertEqual(self._listed(status='with_applications'), ['alice'])
+        self.assertEqual(self._listed(status='no_applications'), ['bob'])
+
+    def test_filter_by_account_state(self):
+        self.bob.is_active = False
+        self.bob.save(update_fields=['is_active'])
+
+        self.assertEqual(self._listed(status='active'), ['alice'])
+        self.assertEqual(self._listed(status='inactive'), ['bob'])
+
+    def test_sorting_by_application_count(self):
+        self.assertEqual(self._listed(sort='applications'), ['alice', 'bob'])
+
+    def test_unknown_sort_falls_back_to_the_default(self):
+        response = self.client.get(self.url, {'sort': 'nonsense'})
+
+        self.assertEqual(response.context['sort'], queries.DEFAULT_APPLICANT_SORT)
+
+    def test_results_are_paged(self):
+        User.objects.bulk_create([
+            User(username=f'bulk{i}', email=f'b{i}@example.com')
+            for i in range(25)])
+
+        first = self.client.get(self.url)
+        self.assertEqual(len(first.context['page'].object_list), 20)
+        self.assertEqual(first.context['total'], 27)
+
+        second = self.client.get(self.url, {'page': 2})
+        self.assertEqual(len(second.context['page'].object_list), 7)
+
+    def test_filters_are_carried_into_the_paging_links(self):
+        response = self.client.get(self.url, {'q': 'alice', 'status': 'active'})
+
+        self.assertIn('q=alice', response.context['querystring'])
+        self.assertIn('status=active', response.context['querystring'])
+
+    def test_each_applicant_appears_once_however_many_applications(self):
+        make_application(self.alice, building_address='77 Station Road')
+        make_application(self.alice, building_address='9 Third Road')
+
+        self.assertEqual(self._listed(q='alice'), ['alice'])

@@ -68,11 +68,12 @@ rather than repeated per page. Child templates fill in:
                             <i class="bi bi-speedometer2 me-2"></i>Dashboard
                         </a>
 
-                        <!-- 3. Applicant Records -->
-                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                        <!-- 3. Applicant Records (Available) -->
+                        <a class="nav-link {% if 'applicant' in request.resolver_match.url_name %}active{% endif %}"
+                           {% if 'applicant' in request.resolver_match.url_name %}aria-current="page"{% endif %}
+                           href="{% url 'adminpanel:applicant_list' %}">
                             <i class="bi bi-people me-2"></i>Applicants
-                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
-                        </span>
+                        </a>
 
                         <!-- 4. Fire Officer Management -->
                         <span class="nav-link disabled text-muted" aria-disabled="true">

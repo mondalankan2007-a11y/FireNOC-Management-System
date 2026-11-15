@@ -12,6 +12,9 @@ urlpatterns = [
     path('dashboard/', views.dashboard, name='dashboard'),
     path('dashboard/refresh/', views.refresh_statistics, name='refresh_statistics'),
 
+    # Applicant management
+    path('applicants/', views.applicant_list, name='applicant_list'),
+
     # Admin Module landing page
     path('', views.admin_home, name='admin_home'),
 ]

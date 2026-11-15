@@ -4,10 +4,12 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.core.paginator import Paginator
+from django.utils.http import urlencode
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
-from . import statistics
+from . import queries, statistics
 from .models import AuditLog
 
 
@@ -176,6 +178,38 @@ def refresh_statistics(request):
     # one refresh produces exactly one record however it was triggered.
     messages.success(request, 'Statistics refreshed.')
     return redirect('adminpanel:dashboard')
+
+
+@admin_required
+def applicant_list(request):
+    """
+    Registered applicants, searchable and paged.
+
+    Paging is explicit rather than a bare queryset slice so the page survives
+    a department with thousands of registrations, and so the figures shown
+    ("showing 1-20 of 413") are honest.
+    """
+    search = request.GET.get('q', '').strip()
+    status = request.GET.get('status', '')
+    sort = request.GET.get('sort', queries.DEFAULT_APPLICANT_SORT)
+    if sort not in queries.APPLICANT_SORTS:
+        sort = queries.DEFAULT_APPLICANT_SORT
+
+    results = queries.applicants(search=search, status=status, sort=sort)
+    page = Paginator(results, 20).get_page(request.GET.get('page'))
+
+    context = {
+        'page': page,
+        'search': search,
+        'status': status,
+        'sort': sort,
+        'sort_options': queries.APPLICANT_SORTS,
+        'total': page.paginator.count,
+        # Carried into the paging links so a filtered list stays filtered.
+        'querystring': urlencode(
+            {k: v for k, v in (('q', search), ('status', status), ('sort', sort)) if v}),
+    }
+    return render(request, 'adminpanel/applicant_list.html', context)
 
 
 @admin_required
