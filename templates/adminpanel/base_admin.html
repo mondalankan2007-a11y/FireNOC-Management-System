@@ -61,11 +61,12 @@ rather than repeated per page. Child templates fill in:
                             <i class="bi bi-grid-1x2-fill me-2"></i>Module Overview
                         </a>
 
-                        <!-- 2. Department Dashboard -->
-                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                        <!-- 2. Department Dashboard (Available) -->
+                        <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"
+                           {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}
+                           href="{% url 'adminpanel:dashboard' %}">
                             <i class="bi bi-speedometer2 me-2"></i>Dashboard
-                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
-                        </span>
+                        </a>
 
                         <!-- 3. Applicant Records -->
                         <span class="nav-link disabled text-muted" aria-disabled="true">

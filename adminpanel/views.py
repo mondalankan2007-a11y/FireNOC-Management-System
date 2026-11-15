@@ -2,10 +2,12 @@ from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.models import User
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.shortcuts import redirect, render
 from django.urls import reverse
 
+from . import statistics
 from .models import AuditLog
 
 
@@ -114,6 +116,51 @@ def admin_logout(request):
     logout(request)
     messages.success(request, 'You have been signed out.')
     return redirect('adminpanel:login')
+
+
+@admin_required
+def dashboard(request):
+    """
+    Department dashboard.
+
+    Each figure is labelled with where it came from, because the sources
+    differ: the status breakdown is precomputed and only as fresh as the last
+    refresh, while everything else is live. Showing that distinction is more
+    useful than hiding it behind a single "statistics" heading.
+    """
+    breakdown, precomputed = statistics.status_breakdown()
+
+    context = {
+        'counts': statistics.headline_counts(),
+        'status_breakdown': breakdown,
+        'status_is_precomputed': precomputed,
+        'last_refreshed_at': statistics.last_refreshed_at(),
+        'deficiencies': statistics.deficiency_summary(),
+        'officers': statistics.officer_workload(),
+        'oldest_waiting': statistics.oldest_waiting(),
+    }
+    return render(request, 'adminpanel/dashboard.html', context)
+
+
+@admin_required
+def refresh_statistics(request):
+    """Refresh the materialized view behind the status breakdown."""
+    if request.method != 'POST':
+        return redirect('adminpanel:dashboard')
+
+    try:
+        call_command('refreshviews', verbosity=0)
+    except CommandError as exc:
+        messages.error(request, f'Statistics could not be refreshed: {exc}')
+        return redirect('adminpanel:dashboard')
+
+    # refreshviews records the refresh itself; this entry adds the actor,
+    # which the command cannot know.
+    AuditLog.record(
+        AuditLog.ACTION_UPDATE, AuditLog.ENTITY_SYSTEM, actor=request.user,
+        summary=statistics.REFRESH_SUMMARY, ip_address=_client_ip(request))
+    messages.success(request, 'Statistics refreshed.')
+    return redirect('adminpanel:dashboard')
 
 
 @admin_required

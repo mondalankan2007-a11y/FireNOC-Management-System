@@ -833,3 +833,110 @@ class AdminSignInTests(TestCase):
         response = self.client.post(reverse('adminpanel:logout'))
         self.assertRedirects(response, self.login_url)
         self.assertFalse(response.wsgi_request.user.is_authenticated)
+
+
+class AdminDashboardTests(TestCase):
+    """The department dashboard and the sources each figure comes from."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin3', 'admin3@example.com', 'pw', is_staff=True)
+        self.applicant = User.objects.create_user(
+            'applicant16', 'a16@example.com', 'pw')
+        self.url = reverse('adminpanel:dashboard')
+
+    def test_dashboard_requires_an_administrator(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(response, f"{reverse('adminpanel:login')}?next={self.url}")
+
+        self.client.force_login(self.applicant)
+        self.assertRedirects(self.client.get(self.url), reverse('home'))
+
+    def test_headline_counts_reflect_the_data(self):
+        make_application(self.applicant)
+        make_application(self.applicant, building_address='77 Station Road',
+                         status='NOC_ISSUED')
+        self.client.force_login(self.admin)
+
+        counts = self.client.get(self.url).context['counts']
+        self.assertEqual(counts['applications'], 2)
+        self.assertEqual(counts['nocs_issued'], 1)
+        self.assertEqual(counts['awaiting_action'], 1)
+
+    def test_open_deficiencies_are_counted(self):
+        application = make_application(self.applicant)
+        inspection = Inspection.objects.create(
+            application=application, scheduled_date=date(2026, 12, 1),
+            scheduled_time=time(10, 0), status='COMPLETED')
+        Deficiency.objects.create(
+            application=application, inspection=inspection, title='Blocked exit',
+            description='x', severity='CRITICAL', status='OPEN')
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['counts']['open_deficiencies'], 1)
+
+    def test_dashboard_renders_for_an_empty_department(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Department Dashboard')
+
+
+@skipUnless(connection.vendor == 'postgresql',
+            'The materialized view only exists on PostgreSQL')
+class DashboardStatisticsSourceTests(TestCase):
+    """
+    The status breakdown is precomputed, and the dashboard says so.
+
+    These tests pin the behaviour that makes a materialized view honest: new
+    applications do not appear until a refresh happens, and the page reports
+    when that last was.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin4', 'admin4@example.com', 'pw', is_staff=True)
+        self.applicant = User.objects.create_user(
+            'applicant17', 'a17@example.com', 'pw')
+        self.client.force_login(self.admin)
+        self.url = reverse('adminpanel:dashboard')
+
+    def test_new_application_is_absent_until_a_refresh(self):
+        make_application(self.applicant)
+
+        response = self.client.get(self.url)
+        self.assertTrue(response.context['status_is_precomputed'])
+        self.assertEqual(list(response.context['status_breakdown']), [])
+        self.assertIsNone(response.context['last_refreshed_at'])
+
+    def test_refresh_populates_the_breakdown_and_is_recorded(self):
+        make_application(self.applicant)
+        AuditLog.objects.all().delete()
+
+        response = self.client.post(reverse('adminpanel:refresh_statistics'))
+        self.assertRedirects(response, self.url)
+
+        breakdown = self.client.get(self.url).context['status_breakdown']
+        self.assertEqual(list(breakdown), [('PENDING', 1, 0)])
+
+        entry = AuditLog.objects.get(summary='Reporting statistics refreshed')
+        self.assertEqual(entry.actor, self.admin)
+
+    def test_dashboard_reports_when_it_was_last_refreshed(self):
+        make_application(self.applicant)
+        self.client.post(reverse('adminpanel:refresh_statistics'))
+
+        response = self.client.get(self.url)
+        self.assertIsNotNone(response.context['last_refreshed_at'])
+
+    def test_refresh_requires_post(self):
+        response = self.client.get(reverse('adminpanel:refresh_statistics'))
+        self.assertRedirects(response, self.url)
+
+    def test_refresh_requires_an_administrator(self):
+        self.client.force_login(self.applicant)
+
+        response = self.client.post(reverse('adminpanel:refresh_statistics'))
+        self.assertRedirects(response, reverse('home'))

@@ -41,3 +41,10 @@ class Command(BaseCommand):
                         f'  {view} was never populated; refreshing with a lock'))
                     cursor.execute(f'REFRESH MATERIALIZED VIEW {view}')
             self.stdout.write(self.style.SUCCESS(f'  refreshed {view}'))
+
+        # Recorded so the dashboard can report how fresh its figures are,
+        # whichever route performed the refresh.
+        from adminpanel.models import AuditLog
+        from adminpanel.statistics import REFRESH_SUMMARY
+        AuditLog.record(AuditLog.ACTION_UPDATE, AuditLog.ENTITY_SYSTEM,
+                        summary=REFRESH_SUMMARY)

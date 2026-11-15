@@ -8,6 +8,10 @@ urlpatterns = [
     path('login/', views.admin_login, name='login'),
     path('logout/', views.admin_logout, name='logout'),
 
+    # Department dashboard
+    path('dashboard/', views.dashboard, name='dashboard'),
+    path('dashboard/refresh/', views.refresh_statistics, name='refresh_statistics'),
+
     # Admin Module landing page
     path('', views.admin_home, name='admin_home'),
 ]
