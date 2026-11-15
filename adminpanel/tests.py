@@ -610,3 +610,85 @@ class ReportingViewTests(TestCase):
 
         rows = self._rows('select status, applications from mv_department_statistics')
         self.assertEqual(rows, [('PENDING', 1)])
+
+
+@skipUnless(connection.vendor == 'postgresql',
+            'The audit triggers are only created on PostgreSQL')
+class AuditTriggerTests(TestCase):
+    """
+    The triggers created by adminpanel/migrations/0005_audit_triggers.
+
+    Every test here changes a status with queryset.update(), which issues SQL
+    directly and never calls Model.save(). That is the case the triggers exist
+    for: a change the application layer would not have recorded.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('applicant14', 'a14@example.com', 'pw')
+        self.application = make_application(self.user)
+        AuditLog.objects.all().delete()
+
+    def test_application_status_change_is_recorded(self):
+        Application.objects.filter(pk=self.application.pk).update(status='UNDER_REVIEW')
+
+        entry = AuditLog.objects.get()
+        self.assertEqual(entry.action, 'STATUS_CHANGE')
+        self.assertEqual(entry.entity_type, 'APPLICATION')
+        self.assertEqual(entry.entity_id, self.application.pk)
+        self.assertEqual(entry.entity_label, self.application.application_id)
+        self.assertEqual(entry.changes,
+                         {'status': {'from': 'PENDING', 'to': 'UNDER_REVIEW'}})
+
+    def test_trigger_entries_have_no_actor(self):
+        Application.objects.filter(pk=self.application.pk).update(status='APPROVED')
+
+        entry = AuditLog.objects.get()
+        self.assertIsNone(entry.actor)
+        self.assertEqual(entry.actor_label, 'database trigger')
+
+    def test_update_that_does_not_change_status_records_nothing(self):
+        Application.objects.filter(pk=self.application.pk).update(remarks='edited')
+
+        self.assertEqual(AuditLog.objects.count(), 0)
+
+    def test_writing_the_same_status_again_records_nothing(self):
+        Application.objects.filter(pk=self.application.pk).update(status='PENDING')
+
+        self.assertEqual(AuditLog.objects.count(), 0)
+
+    def test_inspection_status_change_is_recorded(self):
+        inspection = Inspection.objects.create(
+            application=self.application, scheduled_date=date(2026, 12, 1),
+            scheduled_time=time(10, 0), status='SCHEDULED')
+        AuditLog.objects.all().delete()
+
+        Inspection.objects.filter(pk=inspection.pk).update(status='COMPLETED')
+
+        entry = AuditLog.objects.get()
+        self.assertEqual(entry.entity_type, 'INSPECTION')
+        self.assertEqual(entry.entity_id, inspection.pk)
+
+    def test_deficiency_status_change_is_recorded_with_its_title(self):
+        inspection = Inspection.objects.create(
+            application=self.application, scheduled_date=date(2026, 12, 1),
+            scheduled_time=time(10, 0), status='COMPLETED')
+        deficiency = Deficiency.objects.create(
+            application=self.application, inspection=inspection,
+            title='Blocked fire exit', description='x',
+            severity='MAJOR', status='OPEN')
+        AuditLog.objects.all().delete()
+
+        Deficiency.objects.filter(pk=deficiency.pk).update(status='CLOSED')
+
+        entry = AuditLog.objects.get()
+        self.assertEqual(entry.entity_type, 'DEFICIENCY')
+        self.assertEqual(entry.entity_label, 'Blocked fire exit')
+
+    def test_several_rows_updated_at_once_are_each_recorded(self):
+        second = make_application(self.user, building_address='77 Station Road')
+        AuditLog.objects.all().delete()
+
+        Application.objects.filter(
+            pk__in=[self.application.pk, second.pk]).update(status='REJECTED')
+
+        self.assertEqual(AuditLog.objects.count(), 2)

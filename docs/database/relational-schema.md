@@ -648,3 +648,41 @@ selects `auth_user.email`, so the migration that creates it must run after
 Django's own `auth` migrations have finished altering that column — otherwise
 creating a test database fails with *cannot alter type of a column used by a
 view*. The migration therefore depends on `auth.0012` explicitly.
+
+
+---
+
+## 11. Audit triggers
+
+Created by `adminpanel/migrations/0005_audit_triggers.py`, PostgreSQL only.
+Three `AFTER UPDATE ... FOR EACH ROW` triggers on `applicants_application`,
+`officers_inspection` and `officers_deficiency` call one shared function,
+`fn_audit_status_change()`, which writes a row into `adminpanel_auditlog`
+whenever a `status` column actually changes.
+
+The function is written once and parameterised through `TG_ARGV`: the first
+argument is the audit entity type, the second the column that names the row in
+a way a person would recognise (`application_id`, `title`). It compares with
+`IS DISTINCT FROM`, so rewriting the same status, or updating any other column,
+records nothing.
+
+### Why triggers as well as application-level auditing
+
+The admin module writes audit entries from Python for the actions it performs,
+and those entries name the user responsible. That only covers changes that go
+through the application. A status altered by a data migration, a management
+command, a `queryset.update()` or someone at a `psql` prompt bypasses
+`Model.save()` entirely and would leave no trace.
+
+A trigger fires inside the database whatever issued the statement, so it cannot
+be bypassed by the application. The trade is attribution: the database does not
+know which person is behind a connection, so these entries carry no `actor` and
+are labelled `database trigger`. The two mechanisms answer different questions.
+An application entry says *who* did something. A trigger entry proves *that* it
+happened, and that nothing in the application recorded it.
+
+### Implementation note
+
+`schema_editor.execute()` passes SQL through a DB-API cursor, which reads `%`
+as a parameter marker. Every literal `%` in the trigger function — the
+`format()` placeholders — is written doubled in the migration for that reason.
