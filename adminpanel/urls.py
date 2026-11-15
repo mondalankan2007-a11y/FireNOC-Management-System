@@ -22,6 +22,10 @@ urlpatterns = [
     path('officers/<int:profile_id>/set-active/', views.officer_set_active,
          name='officer_set_active'),
 
+    # NOC certificates
+    path('noc/', views.noc_list, name='noc_list'),
+    path('noc/issue/<int:app_id>/', views.noc_issue, name='noc_issue'),
+
     # Admin Module landing page
     path('', views.admin_home, name='admin_home'),
 ]

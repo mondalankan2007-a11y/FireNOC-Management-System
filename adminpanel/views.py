@@ -11,10 +11,11 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
-from . import queries, statistics
+from . import queries, services, statistics
+from applicants.models import Application
 from officers.models import OfficerProfile
 
-from .models import AuditLog
+from .models import NOC, AuditLog
 
 
 def is_admin(user):
@@ -371,6 +372,56 @@ def officer_set_active(request, profile_id):
         messages.success(request, f'{profile.officer_id} has been deactivated.')
 
     return redirect('adminpanel:officer_detail', profile_id=profile.pk)
+
+
+@admin_required
+def noc_list(request):
+    """Issued certificates, and the applications waiting for one."""
+    search = request.GET.get('q', '').strip()
+    status = request.GET.get('status', '')
+
+    certificates = queries.issued_certificates(search=search, status=status)
+    page = Paginator(certificates, 20).get_page(request.GET.get('page'))
+    ready, blocked = queries.applications_awaiting_issue()
+
+    context = {
+        'page': page,
+        'search': search,
+        'status': status,
+        'status_choices': NOC.STATUS_CHOICES,
+        'total': page.paginator.count,
+        'ready': ready,
+        'blocked': blocked,
+        'querystring': urlencode(
+            {k: v for k, v in (('q', search), ('status', status)) if v}),
+    }
+    return render(request, 'adminpanel/noc_list.html', context)
+
+
+@admin_required
+def noc_issue(request, app_id):
+    """Issue a certificate for an application."""
+    application = get_object_or_404(Application, pk=app_id)
+
+    if request.method != 'POST':
+        return redirect('adminpanel:noc_list')
+
+    try:
+        noc = services.issue_noc(
+            application,
+            actor=request.user,
+            remarks=request.POST.get('remarks', '').strip(),
+            ip_address=_client_ip(request))
+    except services.IssuanceRefused as refusal:
+        for reason in refusal.reasons:
+            messages.error(request, reason)
+        return redirect('adminpanel:noc_list')
+
+    messages.success(
+        request,
+        f'Fire NOC {noc.noc_number} issued for {application.application_id}, '
+        f'valid until {noc.valid_until:%d %b %Y}.')
+    return redirect('adminpanel:noc_list')
 
 
 @admin_required

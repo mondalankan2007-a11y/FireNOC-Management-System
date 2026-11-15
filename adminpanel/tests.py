@@ -3,17 +3,19 @@ from decimal import Decimal
 from unittest import skipUnless
 
 from django.contrib.auth.models import User
+from django.contrib.messages import constants as message_constants
 from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from officers.models import Deficiency, Inspection, OfficerProfile
+from officers.models import (ApplicationReview, Deficiency, DocumentVerification,
+                             Inspection, InspectionReport, OfficerProfile)
 
-from applicants.models import Application
+from applicants.models import Application, ApplicationDocument
 
-from . import queries
+from . import queries, services
 from .models import NOC, ApplicantProfile, AuditLog, Building, PinCode
 from .signals import _sync_building
 
@@ -1703,3 +1705,252 @@ class NOCIntegrationContractTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, 'FN/')
+
+
+def make_issuable_application(applicant, officer, **overrides):
+    """
+    An application that has passed every check an officer applies.
+
+    Documents verified, inspection completed with a satisfactory report, no
+    unresolved deficiencies, and recommended for approval. Built through the
+    real models rather than by forcing a status, so the eligibility gate is
+    exercised as it would be in use.
+    """
+    application = make_application(applicant, status='APPROVED', **overrides)
+
+    document = ApplicationDocument.objects.create(
+        application=application, document_type='FIRE_SAFETY_PLAN',
+        document_name='plan.pdf', file='documents/plan.pdf')
+    DocumentVerification.objects.create(
+        document=document, verified_by=officer, status='VERIFIED',
+        verified_at=timezone.now())
+
+    inspection = Inspection.objects.create(
+        application=application, officer=officer,
+        scheduled_date=date(2026, 11, 1), scheduled_time=time(10, 0),
+        status='COMPLETED', completed_at=timezone.now())
+    InspectionReport.objects.create(
+        inspection=inspection, overall_result='SATISFACTORY',
+        completed_at=timezone.now())
+
+    ApplicationReview.objects.create(
+        application=application, reviewed_by=officer,
+        status='DOCUMENTS_VERIFIED', recommendation='RECOMMENDED_FOR_APPROVAL',
+        recommended_by=officer, recommended_at=timezone.now())
+
+    return application
+
+
+class IssuanceEligibilityTests(TestCase):
+    """What stands between an application and a certificate."""
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('iss1', 'i1@example.com', 'pw')
+        self.officer = User.objects.create_user('issofficer', 'io@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=self.officer, officer_id='FO-301', designation='Inspector')
+
+    def test_a_fully_checked_application_can_be_issued(self):
+        application = make_issuable_application(self.applicant, self.officer)
+
+        self.assertEqual(services.issuance_blockers(application), [])
+        self.assertTrue(services.can_issue(application))
+
+    def test_a_bare_application_cannot_be_issued(self):
+        application = make_application(self.applicant)
+
+        self.assertTrue(services.issuance_blockers(application))
+        self.assertFalse(services.can_issue(application))
+
+    def test_without_an_officer_recommendation_it_is_refused(self):
+        application = make_issuable_application(self.applicant, self.officer)
+        application.officer_review.recommendation = 'PENDING'
+        application.officer_review.save()
+
+        reasons = services.issuance_blockers(application)
+        self.assertTrue(any('recommended' in r for r in reasons), reasons)
+
+    def test_an_open_deficiency_blocks_issue(self):
+        application = make_issuable_application(self.applicant, self.officer)
+        Deficiency.objects.create(
+            application=application, inspection=application.inspections.first(),
+            title='Blocked exit', description='x', severity='MAJOR', status='OPEN')
+
+        self.assertFalse(services.can_issue(application))
+
+    def test_a_rejected_application_is_refused(self):
+        application = make_issuable_application(self.applicant, self.officer)
+        Application.objects.filter(pk=application.pk).update(status='REJECTED')
+        application.refresh_from_db()
+
+        reasons = services.issuance_blockers(application)
+        self.assertTrue(any('rejected' in r.lower() for r in reasons), reasons)
+
+    def test_an_existing_certificate_blocks_a_second(self):
+        application = make_issuable_application(self.applicant, self.officer)
+        services.issue_noc(application, actor=self.officer)
+
+        reasons = services.issuance_blockers(application)
+        self.assertTrue(any('already been issued' in r for r in reasons), reasons)
+
+    def test_a_revoked_certificate_does_not_block_reissue(self):
+        application = make_issuable_application(self.applicant, self.officer)
+        noc = services.issue_noc(application, actor=self.officer)
+        NOC.objects.filter(pk=noc.pk).update(status=NOC.STATUS_REVOKED)
+        Application.objects.filter(pk=application.pk).update(status='APPROVED')
+        application.refresh_from_db()
+
+        self.assertEqual(services.issuance_blockers(application), [])
+
+
+class IssuanceTests(TestCase):
+    """Issuing a certificate, and what it changes."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin11', 'admin11@example.com', 'pw', is_staff=True)
+        self.applicant = User.objects.create_user('iss2', 'i2@example.com', 'pw')
+        self.officer = User.objects.create_user('issofficer2', 'io2@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=self.officer, officer_id='FO-302', designation='Inspector')
+        self.application = make_issuable_application(self.applicant, self.officer)
+        AuditLog.objects.all().delete()
+
+    def test_issuing_creates_a_certificate_with_its_own_number(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        self.assertTrue(noc.noc_number.startswith('FN/'))
+        self.assertEqual(noc.status, NOC.STATUS_ACTIVE)
+        self.assertEqual(noc.issued_by, self.admin)
+        self.assertTrue(noc.is_currently_valid)
+
+    def test_issuing_moves_the_application_to_noc_issued(self):
+        services.issue_noc(self.application, actor=self.admin)
+
+        self.application.refresh_from_db()
+        self.assertEqual(self.application.status, 'NOC_ISSUED')
+
+    def test_validity_follows_the_occupancy_type(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        self.assertEqual(noc.valid_until.year - noc.valid_from.year, 1)
+
+    def test_residential_buildings_are_issued_for_three_years(self):
+        residential = make_issuable_application(
+            self.applicant, self.officer,
+            building_address='9 Residential Lane', occupancy_type='RESIDENTIAL')
+
+        noc = services.issue_noc(residential, actor=self.admin)
+        self.assertEqual(noc.valid_until.year - noc.valid_from.year, 3)
+
+    def test_issuing_is_audited(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        entry = AuditLog.objects.get(action='ISSUE')
+        self.assertEqual(entry.actor, self.admin)
+        self.assertEqual(entry.entity_type, 'NOC')
+        self.assertIn(noc.noc_number, entry.summary)
+        self.assertEqual(entry.changes['noc_number'], noc.noc_number)
+
+    def test_refusal_names_every_unmet_condition(self):
+        bare = make_application(self.applicant, building_address='77 Station Road')
+
+        with self.assertRaises(services.IssuanceRefused) as refused:
+            services.issue_noc(bare, actor=self.admin)
+
+        self.assertTrue(len(refused.exception.reasons) >= 1)
+
+    def test_a_refused_issue_leaves_nothing_behind(self):
+        bare = make_application(self.applicant, building_address='77 Station Road')
+
+        with self.assertRaises(services.IssuanceRefused):
+            services.issue_noc(bare, actor=self.admin)
+
+        self.assertEqual(NOC.objects.count(), 0)
+        bare.refresh_from_db()
+        self.assertNotEqual(bare.status, 'NOC_ISSUED')
+
+    def test_consecutive_issues_get_consecutive_numbers(self):
+        second = make_issuable_application(
+            self.applicant, self.officer, building_address='77 Station Road')
+
+        first_noc = services.issue_noc(self.application, actor=self.admin)
+        second_noc = services.issue_noc(second, actor=self.admin)
+
+        self.assertNotEqual(first_noc.noc_number, second_noc.noc_number)
+        self.assertEqual(
+            int(second_noc.noc_number.rsplit('/', 1)[1]),
+            int(first_noc.noc_number.rsplit('/', 1)[1]) + 1)
+
+
+class NOCScreenTests(TestCase):
+    """The certificates screen and the issue action."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin12', 'admin12@example.com', 'pw', is_staff=True)
+        self.applicant = User.objects.create_user('iss3', 'i3@example.com', 'pw')
+        self.officer = User.objects.create_user('issofficer3', 'io3@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=self.officer, officer_id='FO-303', designation='Inspector')
+        self.application = make_issuable_application(self.applicant, self.officer)
+        self.url = reverse('adminpanel:noc_list')
+        self.issue_url = reverse('adminpanel:noc_issue', args=[self.application.pk])
+        self.client.force_login(self.admin)
+
+    def test_screen_requires_an_administrator(self):
+        self.client.logout()
+        self.assertRedirects(self.client.get(self.url),
+                             f'{reverse("adminpanel:login")}?next={self.url}')
+
+    def test_ready_applications_are_listed(self):
+        ready = self.client.get(self.url).context['ready']
+
+        self.assertEqual([a.pk for a, _ in ready], [self.application.pk])
+
+    def test_blocked_applications_show_their_reasons(self):
+        Deficiency.objects.create(
+            application=self.application,
+            inspection=self.application.inspections.first(),
+            title='Blocked exit', description='x', severity='MAJOR', status='OPEN')
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['ready'], [])
+        self.assertEqual(len(response.context['blocked']), 1)
+
+    def test_issuing_through_the_screen_creates_the_certificate(self):
+        response = self.client.post(self.issue_url, follow=True)
+
+        self.assertEqual(NOC.objects.count(), 1)
+        self.assertContains(response, NOC.objects.get().noc_number)
+
+    def test_issue_requires_post(self):
+        self.client.get(self.issue_url)
+
+        self.assertEqual(NOC.objects.count(), 0)
+
+    def test_issue_requires_an_administrator(self):
+        self.client.force_login(self.applicant)
+
+        self.client.post(self.issue_url)
+        self.assertEqual(NOC.objects.count(), 0)
+
+    def test_a_refused_issue_reports_the_reasons_on_screen(self):
+        bare = make_application(self.applicant, building_address='77 Station Road')
+
+        response = self.client.post(
+            reverse('adminpanel:noc_issue', args=[bare.pk]), follow=True)
+
+        # The project maps ERROR to the Bootstrap tag "danger", so the level
+        # constant is checked rather than the tag string.
+        errors = [m.message for m in response.context['messages']
+                  if m.level == message_constants.ERROR]
+        self.assertTrue(errors, 'the refusal reasons must reach the page')
+        self.assertTrue(any('recommended' in e for e in errors), errors)
+        self.assertEqual(NOC.objects.count(), 0)
+
+    def test_issued_certificates_are_listed_and_searchable(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        listed = self.client.get(self.url, {'q': noc.noc_number})
+        self.assertEqual([n.pk for n in listed.context['page'].object_list], [noc.pk])

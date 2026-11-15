@@ -11,9 +11,10 @@ from django.db import connection
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
+from applicants.models import Application
 from officers.models import Deficiency, Inspection, OfficerProfile
 
-from .models import AuditLog
+from .models import NOC, AuditLog
 
 APPLICANT_SORTS = {
     'name': 'first_name',
@@ -224,3 +225,44 @@ def officer_outstanding_work(user):
         'open_deficiencies': Deficiency.objects.filter(
             reported_by=user, status='OPEN').count(),
     }
+
+
+def issued_certificates(search='', status=''):
+    """Certificates the department has issued, newest first."""
+    queryset = NOC.objects.select_related('application', 'issued_by')
+
+    if search:
+        queryset = queryset.filter(
+            Q(noc_number__icontains=search)
+            | Q(application__application_id__icontains=search)
+            | Q(application__building_name__icontains=search)
+            | Q(application__full_name__icontains=search))
+
+    if status in dict(NOC.STATUS_CHOICES):
+        queryset = queryset.filter(status=status)
+
+    return queryset
+
+
+def applications_awaiting_issue(limit=50):
+    """
+    Applications an officer has recommended, that have no live certificate.
+
+    The eligibility of each is evaluated afterwards rather than in SQL,
+    because the rules live in get_recommendation_eligibility() and span four
+    tables. This narrows the candidates to a handful first so that evaluation
+    is cheap.
+    """
+    from .services import issuance_blockers
+
+    candidates = (Application.objects
+                  .filter(officer_review__recommendation='RECOMMENDED_FOR_APPROVAL')
+                  .exclude(status__in=['REJECTED', 'NOC_ISSUED'])
+                  .select_related('officer_review')
+                  .order_by('created_at')[:limit])
+
+    ready, blocked = [], []
+    for application in candidates:
+        reasons = issuance_blockers(application)
+        (ready if not reasons else blocked).append((application, reasons))
+    return ready, blocked

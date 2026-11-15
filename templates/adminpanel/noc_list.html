@@ -1,0 +1,194 @@
+{% extends 'adminpanel/base_admin.html' %}
+{% load static %}
+
+{% block page_title %}NOC Certificates{% endblock %}
+
+{% block breadcrumb %}
+    <li class="breadcrumb-item"><a href="{% url 'adminpanel:admin_home' %}">Admin Portal</a></li>
+    <li class="breadcrumb-item active" aria-current="page">NOC Certificates</li>
+{% endblock %}
+
+{% block admin_page_heading %}Fire NOC Certificates{% endblock %}
+{% block admin_page_subtitle %}
+    Issue certificates for recommended applications, and review those already issued.
+{% endblock %}
+
+{% block admin_content %}
+<!-- Awaiting issue -->
+<div class="card border-0 shadow-sm mb-4">
+    <div class="card-body p-4">
+        <h5 class="fw-bold mb-1">Awaiting issue</h5>
+        <p class="text-muted small mb-3">
+            Applications a fire officer has recommended for approval. Eligibility is
+            evaluated with the same checks the officer module applies, so this page
+            and the officer's screen cannot disagree.
+        </p>
+
+        {% if ready %}
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr class="text-muted small text-uppercase">
+                        <th>Application</th><th>Building</th><th>Occupancy</th>
+                        <th>Validity</th><th class="text-end">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for application, reasons in ready %}
+                    <tr>
+                        <td class="small fw-semibold">{{ application.application_id }}</td>
+                        <td class="small">
+                            {{ application.building_name }}
+                            <div class="text-muted">{{ application.city }}</div>
+                        </td>
+                        <td class="small text-muted">{{ application.get_occupancy_type_display }}</td>
+                        <td class="small text-muted">
+                            {% if application.occupancy_type == 'RESIDENTIAL' %}3 years{% else %}1 year{% endif %}
+                        </td>
+                        <td class="text-end">
+                            <form method="post" action="{% url 'adminpanel:noc_issue' application.pk %}" class="m-0">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-danger btn-sm">
+                                    <i class="bi bi-patch-check me-1"></i>Issue certificate
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted small">No application is ready for issue.</p>
+        {% endif %}
+
+        {% if blocked %}
+        <h6 class="fw-bold small text-uppercase text-muted mt-4 mb-2">
+            Recommended but not yet eligible
+        </h6>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr class="text-muted small text-uppercase">
+                        <th>Application</th><th>Building</th><th>Outstanding</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for application, reasons in blocked %}
+                    <tr>
+                        <td class="small fw-semibold">{{ application.application_id }}</td>
+                        <td class="small">{{ application.building_name }}</td>
+                        <td class="small">
+                            <ul class="mb-0 ps-3 text-muted">
+                                {% for reason in reasons %}<li>{{ reason }}</li>{% endfor %}
+                            </ul>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Issued certificates -->
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <h5 class="fw-bold mb-3">Issued certificates</h5>
+
+        <form method="get" class="row g-2 align-items-end mb-3">
+            <div class="col-md-6">
+                <label for="q" class="form-label small text-muted mb-1">Search</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="search" class="form-control" id="q" name="q" value="{{ search }}"
+                           placeholder="Certificate number, application number, building or applicant">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label for="status" class="form-label small text-muted mb-1">Status</label>
+                <select class="form-select" id="status" name="status">
+                    <option value="">All</option>
+                    {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-3 d-flex gap-2">
+                <button type="submit" class="btn btn-outline-danger flex-grow-1">Filter</button>
+                {% if search or status %}
+                <a href="{% url 'adminpanel:noc_list' %}" class="btn btn-outline-secondary">Clear</a>
+                {% endif %}
+            </div>
+        </form>
+
+        {% if page.object_list %}
+        <p class="text-muted small mb-2">
+            Showing {{ page.start_index }}–{{ page.end_index }} of {{ total }}
+            certificate{{ total|pluralize }}.
+        </p>
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr class="text-muted small text-uppercase">
+                        <th>Certificate</th><th>Application</th><th>Building</th>
+                        <th>Issued</th><th>Valid until</th><th>Issued by</th>
+                        <th class="text-end">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for noc in page.object_list %}
+                    <tr>
+                        <td class="small fw-semibold">{{ noc.noc_number }}</td>
+                        <td class="small text-muted">{{ noc.application.application_id }}</td>
+                        <td class="small text-truncate" style="max-width: 160px;">
+                            {{ noc.application.building_name }}
+                        </td>
+                        <td class="small text-muted">{{ noc.issued_at|date:"d M Y" }}</td>
+                        <td class="small {% if noc.is_expired %}text-danger{% else %}text-muted{% endif %}">
+                            {{ noc.valid_until|date:"d M Y" }}
+                        </td>
+                        <td class="small text-muted">{{ noc.issued_by_label|default:"—" }}</td>
+                        <td class="text-end">
+                            {% if noc.is_currently_valid %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">Valid</span>
+                            {% elif noc.status == 'REVOKED' %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">Revoked</span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Expired</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if page.paginator.num_pages > 1 %}
+        <nav aria-label="Certificate pages" class="mt-3">
+            <ul class="pagination pagination-sm mb-0">
+                <li class="page-item {% if not page.has_previous %}disabled{% endif %}">
+                    {% if page.has_previous %}
+                    <a class="page-link" href="?page={{ page.previous_page_number }}{% if querystring %}&{{ querystring }}{% endif %}">Previous</a>
+                    {% else %}<span class="page-link">Previous</span>{% endif %}
+                </li>
+                <li class="page-item disabled">
+                    <span class="page-link">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+                </li>
+                <li class="page-item {% if not page.has_next %}disabled{% endif %}">
+                    {% if page.has_next %}
+                    <a class="page-link" href="?page={{ page.next_page_number }}{% if querystring %}&{{ querystring }}{% endif %}">Next</a>
+                    {% else %}<span class="page-link">Next</span>{% endif %}
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+        {% else %}
+        <p class="text-muted small mb-0">
+            No certificates have been issued{% if search or status %} matching that filter{% endif %}.
+        </p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

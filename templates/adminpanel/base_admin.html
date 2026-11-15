@@ -88,11 +88,12 @@ rather than repeated per page. Child templates fill in:
                             <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
                         </span>
 
-                        <!-- 6. NOC Certificate Issuance -->
-                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                        <!-- 6. NOC Certificate Issuance (Available) -->
+                        <a class="nav-link {% if 'noc' in request.resolver_match.url_name %}active{% endif %}"
+                           {% if 'noc' in request.resolver_match.url_name %}aria-current="page"{% endif %}
+                           href="{% url 'adminpanel:noc_list' %}">
                             <i class="bi bi-patch-check me-2"></i>NOC Certificates
-                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
-                        </span>
+                        </a>
 
                         <!-- 7. Reports & Analytics -->
                         <span class="nav-link disabled text-muted" aria-disabled="true">
