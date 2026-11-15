@@ -3,10 +3,11 @@ from decimal import Decimal
 from unittest import skipUnless
 
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 
-from officers.models import Deficiency, Inspection
+from officers.models import Deficiency, Inspection, OfficerProfile
 
 from applicants.models import Application
 
@@ -531,3 +532,81 @@ class DeficiencyApplicationConsistencyTests(TestCase):
 
         with self.assertRaises(IntegrityError):
             self._force_constraint_check()
+
+
+@skipUnless(connection.vendor == 'postgresql',
+            'The reporting views are only created on PostgreSQL')
+class ReportingViewTests(TestCase):
+    """
+    The views created by adminpanel/migrations/0004_reporting_views.
+
+    Each is queried through raw SQL, which is how the reporting layer reads
+    them, so a view whose definition stops matching the schema fails here.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user('applicant13', 'a13@example.com', 'pw')
+        self.application = make_application(self.user)
+
+    def _rows(self, sql):
+        with connection.cursor() as cursor:
+            cursor.execute(sql)
+            return cursor.fetchall()
+
+    def test_application_overview_exposes_one_row_per_application(self):
+        rows = self._rows('select reference, status, open_deficiency_count, '
+                          'age_in_days from v_application_overview')
+
+        self.assertEqual(len(rows), 1)
+        reference, status, open_deficiencies, age = rows[0]
+        self.assertEqual(reference, self.application.application_id)
+        self.assertEqual(status, 'PENDING')
+        self.assertEqual(open_deficiencies, 0)
+        self.assertEqual(age, 0)
+
+    def test_application_overview_counts_open_deficiencies(self):
+        inspection = Inspection.objects.create(
+            application=self.application, scheduled_date=date(2026, 12, 1),
+            scheduled_time=time(10, 0), status='COMPLETED')
+        Deficiency.objects.create(
+            application=self.application, inspection=inspection,
+            title='Blocked exit', description='Rear exit obstructed',
+            severity='MAJOR', status='OPEN')
+
+        rows = self._rows('select deficiency_count, open_deficiency_count, '
+                          'last_inspection_status from v_application_overview')
+        self.assertEqual(rows[0], (1, 1, 'COMPLETED'))
+
+    def test_officer_workload_lists_officers_with_a_profile(self):
+        officer = User.objects.create_user('officer9', 'o9@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=officer, officer_id='FO-909', designation='Inspector')
+
+        rows = self._rows('select username, officer_reference, inspections_total '
+                          'from v_officer_workload')
+        self.assertEqual(rows, [('officer9', 'FO-909', 0)])
+
+    def test_deficiency_summary_groups_by_severity_and_status(self):
+        inspection = Inspection.objects.create(
+            application=self.application, scheduled_date=date(2026, 12, 1),
+            scheduled_time=time(10, 0), status='COMPLETED')
+        for severity in ('MINOR', 'MAJOR'):
+            Deficiency.objects.create(
+                application=self.application, inspection=inspection,
+                title=f'{severity} issue', description='x',
+                severity=severity, status='OPEN')
+
+        rows = self._rows('select severity, status, deficiencies '
+                          'from v_deficiency_summary order by severity')
+        self.assertEqual(rows, [('MAJOR', 'OPEN', 1), ('MINOR', 'OPEN', 1)])
+
+    def test_department_statistics_is_materialized_and_needs_refreshing(self):
+        # A materialized view holds the result of its last refresh, so the
+        # application created in setUp is not visible until one happens.
+        self.assertEqual(
+            self._rows('select count(*) from mv_department_statistics')[0][0], 0)
+
+        call_command('refreshviews', '--blocking', verbosity=0)
+
+        rows = self._rows('select status, applications from mv_department_statistics')
+        self.assertEqual(rows, [('PENDING', 1)])
