@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Administrator Sign In | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-card shadow-sm mx-auto">
+        <!-- Header -->
+        <div class="auth-header text-center" style="background: linear-gradient(135deg, #0b2545 0%, #040e1b 100%); border-bottom: 3px solid #dc2626;">
+            <div class="auth-header-icon mx-auto mb-2" style="background-color: rgba(220, 38, 38, 0.2); border-color: rgba(220, 38, 38, 0.5); color: #f87171;">
+                <i class="bi bi-shield-lock-fill"></i>
+            </div>
+            <h4 class="fw-bold text-white mb-1">Administrator Sign In</h4>
+            <p class="text-white-50 small mb-0">
+                Department of Fire &amp; Emergency Services
+            </p>
+        </div>
+
+        <div class="auth-body">
+            <!-- Restricted access notice -->
+            <div class="auth-notice-card mb-4">
+                <div class="d-flex">
+                    <i class="bi bi-info-circle-fill text-danger me-2 mt-1 flex-shrink-0"></i>
+                    <div class="small text-muted">
+                        This portal is restricted to departmental administrators.
+                        Applicants should use the
+                        <a href="{% url 'login' %}">applicant sign-in</a>, and fire
+                        officers the <a href="{% url 'officers:login' %}">officer sign-in</a>.
+                    </div>
+                </div>
+            </div>
+
+            <form method="post" novalidate>
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ next }}">
+
+                <div class="mb-3">
+                    <label for="username" class="form-label">
+                        Username <span class="required-star">*</span>
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-person"></i></span>
+                        <input type="text" class="form-control" id="username" name="username"
+                               value="{{ username|default:'' }}" autocomplete="username"
+                               autofocus required>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label for="password" class="form-label">
+                        Password <span class="required-star">*</span>
+                    </label>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="bi bi-key"></i></span>
+                        <input type="password" class="form-control" id="password" name="password"
+                               autocomplete="current-password" required>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-danger w-100 btn-register-submit">
+                    <i class="bi bi-box-arrow-in-right me-1"></i>Sign In
+                </button>
+            </form>
+
+            <p class="text-muted small text-center mt-4 mb-0">
+                <i class="bi bi-clock-history me-1"></i>
+                Sign-in attempts are recorded in the system audit log.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

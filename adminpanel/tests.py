@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from django.core.management import call_command
 from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
+from django.urls import reverse
 
 from officers.models import Deficiency, Inspection, OfficerProfile
 
@@ -692,3 +693,143 @@ class AuditTriggerTests(TestCase):
             pk__in=[self.application.pk, second.pk]).update(status='REJECTED')
 
         self.assertEqual(AuditLog.objects.count(), 2)
+
+
+class AdminAccessControlTests(TestCase):
+    """
+    Who may reach the admin portal.
+
+    An applicant is a plain account, an officer owns an OfficerProfile, and an
+    administrator carries is_staff. These tests pin that separation down,
+    including the case of an account that is somehow both.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin', 'admin@example.com', 'pw', is_staff=True)
+        self.applicant = User.objects.create_user(
+            'applicant15', 'a15@example.com', 'pw')
+        self.officer = User.objects.create_user('officer10', 'o10@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=self.officer, officer_id='FO-010', designation='Inspector')
+        self.home = reverse('adminpanel:admin_home')
+        self.login_url = reverse('adminpanel:login')
+
+    def test_anonymous_visitor_is_sent_to_sign_in_with_next(self):
+        response = self.client.get(self.home)
+
+        self.assertRedirects(response, f'{self.login_url}?next={self.home}')
+
+    def test_administrator_reaches_the_portal(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.home)
+        self.assertEqual(response.status_code, 200)
+
+    def test_applicant_is_refused(self):
+        self.client.force_login(self.applicant)
+
+        response = self.client.get(self.home)
+        self.assertRedirects(response, reverse('home'))
+
+    def test_officer_is_refused(self):
+        self.client.force_login(self.officer)
+
+        response = self.client.get(self.home)
+        self.assertRedirects(response, reverse('home'))
+
+    def test_officer_who_is_also_staff_is_still_refused(self):
+        # An account that is both is treated as the narrower role, so that
+        # granting staff to an officer does not quietly confer admin rights.
+        self.officer.is_staff = True
+        self.officer.save(update_fields=['is_staff'])
+        self.client.force_login(self.officer)
+
+        response = self.client.get(self.home)
+        self.assertRedirects(response, reverse('home'))
+
+    def test_deactivated_administrator_is_refused(self):
+        self.admin.is_active = False
+        self.admin.save(update_fields=['is_active'])
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.home)
+        self.assertEqual(response.status_code, 302)
+
+
+class AdminSignInTests(TestCase):
+    """The sign-in form itself, and what it records."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin2', 'admin2@example.com', 'correct-horse', is_staff=True)
+        self.login_url = reverse('adminpanel:login')
+        AuditLog.objects.all().delete()
+
+    def test_valid_credentials_sign_in_and_redirect(self):
+        response = self.client.post(
+            self.login_url,
+            {'username': 'deptadmin2', 'password': 'correct-horse'})
+
+        self.assertRedirects(response, reverse('adminpanel:admin_home'))
+        self.assertEqual(response.wsgi_request.user, self.admin)
+
+    def test_next_is_honoured_after_sign_in(self):
+        response = self.client.post(
+            self.login_url,
+            {'username': 'deptadmin2', 'password': 'correct-horse',
+             'next': '/admin-panel/'})
+
+        self.assertRedirects(response, '/admin-panel/')
+
+    def test_wrong_password_is_rejected_and_audited(self):
+        response = self.client.post(
+            self.login_url, {'username': 'deptadmin2', 'password': 'wrong'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
+        entry = AuditLog.objects.get()
+        self.assertIn('Failed admin sign-in', entry.summary)
+        self.assertIsNone(entry.actor)
+
+    def test_failure_message_does_not_reveal_whether_the_account_exists(self):
+        for username in ('deptadmin2', 'no-such-account'):
+            response = self.client.post(
+                self.login_url, {'username': username, 'password': 'wrong'})
+            self.assertContains(response, 'Invalid username or password.')
+
+    def test_non_admin_with_valid_credentials_is_refused_and_audited(self):
+        User.objects.create_user('plainuser', 'p@example.com', 'letmein')
+
+        response = self.client.post(
+            self.login_url, {'username': 'plainuser', 'password': 'letmein'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
+        entry = AuditLog.objects.get()
+        self.assertIn('not an administrator', entry.summary)
+        self.assertIsNotNone(entry.actor)
+
+    def test_successful_sign_in_is_audited(self):
+        self.client.post(self.login_url,
+                         {'username': 'deptadmin2', 'password': 'correct-horse'})
+
+        entry = AuditLog.objects.get()
+        self.assertEqual(entry.summary, 'Administrator signed in')
+        self.assertEqual(entry.actor, self.admin)
+
+    def test_already_signed_in_admin_skips_the_form(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(self.login_url)
+        self.assertRedirects(response, reverse('adminpanel:admin_home'))
+
+    def test_sign_out_requires_post(self):
+        self.client.force_login(self.admin)
+
+        self.assertRedirects(self.client.get(reverse('adminpanel:logout')),
+                             reverse('adminpanel:admin_home'))
+
+        response = self.client.post(reverse('adminpanel:logout'))
+        self.assertRedirects(response, self.login_url)
+        self.assertFalse(response.wsgi_request.user.is_authenticated)
