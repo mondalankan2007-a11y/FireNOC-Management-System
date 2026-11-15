@@ -34,6 +34,12 @@ urlpatterns = [
     # Admin Module Routes (Admin + Database + NOC)
     path('admin-panel/', include('adminpanel.urls')),
 
+    # Public certificate verification (Admin + Database + NOC module).
+    # Deliberately outside /admin-panel/: this is the one part of the system
+    # reachable without an account, because the people who need to check a
+    # Fire NOC are holding the paper, not an account in this system.
+    path('verify/', include('adminpanel.public_urls')),
+
     # Top-level My Applications route: /applications/
     path('applications/', my_applications, name='my_applications_root'),
     path('applications/<int:application_id>/', application_details, name='application_details_root'),

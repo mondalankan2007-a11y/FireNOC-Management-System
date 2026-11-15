@@ -1,5 +1,10 @@
+import hashlib
+import hmac
+
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 from applicants.models import Application
 
@@ -307,3 +312,239 @@ class AuditLog(models.Model):
             changes=changes or {},
             ip_address=ip_address,
         )
+
+
+class NOC(models.Model):
+    """
+    A Fire No Objection Certificate that the department has issued.
+
+    The class is named NOC and carries `application`, `noc_number` and
+    `issued_at` deliberately: the applicant module already contains a runtime
+    hook that searches the installed apps for a model with exactly those names
+    (see applicants/views.py). Matching them makes the applicant dashboard
+    counter and the timeline's final stage work with no change to that module.
+
+    A certificate is a record in its own right, not a view over an approved
+    application. Three things follow from that, and each corrects something
+    the derived version could not do:
+
+      - It has its own number series. A certificate number is not the
+        application number: one application produces at most one certificate,
+        but they are different things and the department refers to them
+        separately.
+      - Its dates are stored, not computed. Deriving the issue date from the
+        application's last-modified timestamp means editing the application
+        silently moves the certificate's issue date, and its expiry with it.
+      - It can be revoked. A derived certificate exists for as long as the
+        application is approved, which leaves no way to withdraw one.
+    """
+
+    STATUS_ACTIVE = 'ACTIVE'
+    STATUS_EXPIRED = 'EXPIRED'
+    STATUS_REVOKED = 'REVOKED'
+
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_EXPIRED, 'Expired'),
+        (STATUS_REVOKED, 'Revoked'),
+    ]
+
+    # Validity granted on issue, in years, by the building's occupancy type.
+    # Residential buildings change least, so they are re-inspected least often.
+    VALIDITY_YEARS = {
+        'RESIDENTIAL': 3,
+    }
+    DEFAULT_VALIDITY_YEARS = 1
+
+    NUMBER_PREFIX = 'FN'
+
+    application = models.ForeignKey(
+        Application,
+        on_delete=models.CASCADE,
+        related_name='nocs',
+        help_text="The application this certificate was issued against"
+    )
+    noc_number = models.CharField(
+        max_length=50,
+        unique=True,
+        help_text="Certificate number in its own series, e.g. FN/2026/00001"
+    )
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    issued_at = models.DateTimeField(
+        help_text="When the department issued this certificate")
+    valid_from = models.DateField()
+    valid_until = models.DateField(
+        help_text="Stored at issuance rather than derived, so later edits to "
+                  "the application cannot move it"
+    )
+    issued_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='issued_nocs',
+        help_text="Administrator who issued it; null if that account is removed"
+    )
+    issued_by_label = models.CharField(
+        max_length=150,
+        blank=True,
+        default='',
+        help_text="Who issued it, as text, so the record survives account deletion"
+    )
+    remarks = models.TextField(blank=True, default='')
+    integrity_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        help_text="Keyed digest of the certificate's own fields, written at "
+                  "issuance; recomputing it detects later alteration"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-issued_at', '-pk']
+        verbose_name = 'Fire NOC'
+        verbose_name_plural = 'Fire NOCs'
+        indexes = [
+            models.Index(fields=['status', '-issued_at'], name='noc_status_issued_idx'),
+            models.Index(fields=['valid_until'], name='noc_valid_until_idx'),
+        ]
+        constraints = [
+            # One live certificate per application, while revoked ones are
+            # kept. A plain unique constraint on application_id would make
+            # revoking and reissuing impossible; dropping the revoked row
+            # instead would destroy the record of the revocation.
+            models.UniqueConstraint(
+                fields=['application'],
+                condition=~models.Q(status='REVOKED'),
+                name='one_live_noc_per_application'),
+            models.CheckConstraint(
+                check=models.Q(status__in=['ACTIVE', 'EXPIRED', 'REVOKED']),
+                name='noc_status_valid'),
+            models.CheckConstraint(
+                check=models.Q(valid_until__gt=models.F('valid_from')),
+                name='noc_validity_period_positive'),
+        ]
+
+    def __str__(self):
+        return f"{self.noc_number} ({self.get_status_display()})"
+
+    # ------------------------------------------------------------------ dates
+
+    @classmethod
+    def validity_years_for(cls, occupancy_type):
+        """How many years a certificate runs for a given occupancy type."""
+        return cls.VALIDITY_YEARS.get(occupancy_type, cls.DEFAULT_VALIDITY_YEARS)
+
+    @property
+    def is_expired(self):
+        """Whether the validity period has passed, regardless of stored status."""
+        return self.valid_until < timezone.localdate()
+
+    @property
+    def is_currently_valid(self):
+        """
+        Whether this certificate can be relied on today.
+
+        Status and dates are checked together on purpose. Status alone goes
+        stale, because a certificate expires by the calendar passing rather
+        than by anything happening in the system; dates alone would ignore a
+        revocation.
+        """
+        return self.status == self.STATUS_ACTIVE and not self.is_expired
+
+    @property
+    def days_until_expiry(self):
+        return (self.valid_until - timezone.localdate()).days
+
+    # -------------------------------------------------------------- integrity
+
+    def integrity_payload(self):
+        """
+        The exact bytes the digest is taken over.
+
+        Each field is one that a forger would have to change to make a
+        certificate say something it did not: which certificate it is, which
+        application it belongs to, who it was issued to, which building it
+        covers, when it was issued and how long it runs.
+
+        The separator is a character that cannot appear in any of these
+        values, so no combination of fields can be rearranged to produce the
+        same payload as a different combination.
+        """
+        application = self.application
+        return '\x1f'.join([
+            self.noc_number,
+            application.application_id or str(application.pk),
+            application.full_name,
+            application.building_name,
+            application.building_address,
+            application.pin_code,
+            self.issued_at.isoformat(),
+            self.valid_from.isoformat(),
+            self.valid_until.isoformat(),
+        ])
+
+    def compute_integrity_hash(self):
+        """
+        A keyed digest of this certificate, using the project's secret key.
+
+        HMAC rather than a plain hash, deliberately. A plain SHA-256 of the
+        fields could be recomputed by anyone who could alter the row: change
+        the expiry date, recompute the digest, store both, and the forgery
+        verifies. An HMAC cannot be recomputed without the server's secret, so
+        altering any field leaves a digest that no longer matches and cannot
+        be repaired from outside the application.
+        """
+        return hmac.new(
+            settings.SECRET_KEY.encode(),
+            self.integrity_payload().encode(),
+            hashlib.sha256,
+        ).hexdigest()
+
+    def verify_integrity(self):
+        """
+        Whether this certificate still matches the digest stored at issuance.
+
+        Compared with compare_digest rather than ==, so the time taken does
+        not depend on how much of the digest matched.
+        """
+        if not self.integrity_hash:
+            return None  # issued before digests were recorded
+        return hmac.compare_digest(
+            self.integrity_hash, self.compute_integrity_hash())
+
+    @property
+    def short_verification_code(self):
+        """The first twelve characters of the digest, for printing."""
+        return self.integrity_hash[:12].upper() if self.integrity_hash else ''
+
+    # ---------------------------------------------------------------- numbers
+
+    @classmethod
+    def next_number(cls, year=None):
+        """
+        The next certificate number in the series for a year.
+
+        Numbers run FN/2026/00001 upward, restarting each year, so the series
+        reads the way a departmental file reference does.
+
+        This reads the current maximum and adds one, which two simultaneous
+        callers can both do and arrive at the same answer. That race is not
+        prevented here; it is caught by the unique constraint on noc_number
+        and retried by issue(). Preventing it instead would mean locking the
+        whole table for every issuance, which costs more than the rare retry.
+        """
+        year = year or timezone.localdate().year
+        prefix = f'{cls.NUMBER_PREFIX}/{year}/'
+
+        last = (cls.objects
+                .filter(noc_number__startswith=prefix)
+                .order_by('-noc_number')
+                .values_list('noc_number', flat=True)
+                .first())
+
+        sequence = int(last.rsplit('/', 1)[1]) + 1 if last else 1
+        return f'{prefix}{sequence:05d}'

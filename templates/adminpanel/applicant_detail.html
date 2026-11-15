@@ -1,0 +1,200 @@
+{% extends 'adminpanel/base_admin.html' %}
+{% load static %}
+
+{% block page_title %}{{ applicant.get_full_name|default:applicant.username }}{% endblock %}
+
+{% block breadcrumb %}
+    <li class="breadcrumb-item"><a href="{% url 'adminpanel:admin_home' %}">Admin Portal</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'adminpanel:applicant_list' %}">Applicants</a></li>
+    <li class="breadcrumb-item active" aria-current="page">
+        {{ applicant.get_full_name|default:applicant.username }}
+    </li>
+{% endblock %}
+
+{% block admin_page_heading %}{{ applicant.get_full_name|default:applicant.username }}{% endblock %}
+{% block admin_page_subtitle %}
+    Contact record, application history and recorded activity.
+{% endblock %}
+
+{% block admin_content %}
+<div class="row g-4">
+    <!-- Contact record -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h6 class="fw-bold text-uppercase small text-muted mb-3">Contact record</h6>
+                <dl class="mb-0 small">
+                    <dt class="text-muted fw-normal">Username</dt>
+                    <dd class="fw-semibold">{{ applicant.username }}</dd>
+
+                    <dt class="text-muted fw-normal">Full name</dt>
+                    <dd class="fw-semibold">
+                        {% if profile and profile.full_name %}{{ profile.full_name }}
+                        {% else %}{{ applicant.get_full_name|default:"—" }}{% endif %}
+                    </dd>
+
+                    <dt class="text-muted fw-normal">Email</dt>
+                    <dd class="fw-semibold">{{ applicant.email|default:"—" }}</dd>
+
+                    <dt class="text-muted fw-normal">Mobile</dt>
+                    <dd class="fw-semibold">
+                        {% if profile and profile.mobile_number %}{{ profile.mobile_number }}
+                        {% else %}<span class="text-muted fst-italic">Not on record</span>{% endif %}
+                    </dd>
+
+                    <dt class="text-muted fw-normal">Registered</dt>
+                    <dd class="fw-semibold">{{ applicant.date_joined|date:"d M Y" }}</dd>
+
+                    <dt class="text-muted fw-normal">Account</dt>
+                    <dd class="mb-0">
+                        {% if applicant.is_active %}
+                            <span class="badge bg-success-subtle text-success border border-success-subtle">Active</span>
+                        {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Deactivated</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+
+                {% if not profile %}
+                <div class="alert alert-warning small mt-3 mb-0 py-2">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    No normalized applicant record. One is created when they next
+                    file or update an application.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary counts -->
+    <div class="col-lg-8">
+        <div class="row g-3">
+            <div class="col-6 col-xl-3">
+                <div class="dashboard-stat-card stat-navy h-100">
+                    <div class="dashboard-stat-number">{{ summary.total }}</div>
+                    <div class="text-muted small">Applications</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="dashboard-stat-card stat-amber h-100">
+                    <div class="dashboard-stat-number">{{ summary.in_progress }}</div>
+                    <div class="text-muted small">In progress</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="dashboard-stat-card stat-red h-100">
+                    <div class="dashboard-stat-number">{{ summary.open_deficiencies }}</div>
+                    <div class="text-muted small">Open deficiencies</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="dashboard-stat-card stat-green h-100">
+                    <div class="dashboard-stat-number">{{ summary.issued }}</div>
+                    <div class="text-muted small">NOCs issued</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Application history -->
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-body p-4">
+                <h6 class="fw-bold text-uppercase small text-muted mb-1">Application history</h6>
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-eye me-1"></i>From <code>v_application_overview</code>.
+                </p>
+
+                {% if applications %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr class="text-muted small text-uppercase">
+                                <th>Reference</th><th>Building</th><th>Type</th>
+                                <th>Status</th><th>Last inspection</th>
+                                <th class="text-end">Open def.</th><th class="text-end">Age</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for application in applications %}
+                            <tr>
+                                <td class="small fw-semibold">{{ application.reference }}</td>
+                                <td class="small text-truncate" style="max-width: 150px;">
+                                    {{ application.building_name }}
+                                    <div class="text-muted">{{ application.city }}</div>
+                                </td>
+                                <td class="small text-muted">
+                                    {% if application.application_type == 'RENEWAL' %}Renewal{% else %}New{% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge {% if application.status == 'NOC_ISSUED' %}bg-success-subtle text-success border border-success-subtle{% elif application.status == 'REJECTED' %}bg-danger-subtle text-danger border border-danger-subtle{% elif application.status == 'DEFICIENT' %}bg-warning-subtle text-warning-emphasis border border-warning-subtle{% else %}bg-light text-dark border{% endif %} small">
+                                        {{ application.status }}
+                                    </span>
+                                </td>
+                                <td class="small text-muted">
+                                    {% if application.last_inspection_date %}
+                                        {{ application.last_inspection_date|date:"d M Y" }}
+                                        <div>{{ application.last_inspection_status }}</div>
+                                    {% else %}
+                                        Never inspected
+                                    {% endif %}
+                                </td>
+                                <td class="text-end small {% if application.open_deficiency_count %}text-danger fw-semibold{% else %}text-muted{% endif %}">
+                                    {{ application.open_deficiency_count }}
+                                </td>
+                                <td class="text-end small text-muted">{{ application.age_in_days }}d</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">
+                    This account has never filed an application.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Activity -->
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <h6 class="fw-bold text-uppercase small text-muted mb-1">Recorded activity</h6>
+                <p class="text-muted small mb-3">
+                    Entries where this person acted, and entries about their applications
+                    — including actions taken by officers.
+                </p>
+
+                {% if activity %}
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr class="text-muted small text-uppercase">
+                            <th>When</th><th>Who</th><th>Action</th><th>Record</th><th>Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in activity %}
+                        <tr>
+                            <td class="small text-muted text-nowrap">{{ entry.created_at|timesince }} ago</td>
+                            <td class="small">
+                                {% if entry.actor %}
+                                    {{ entry.actor_label }}
+                                {% else %}
+                                    <span class="text-muted"><i class="bi bi-hdd-stack me-1"></i>{{ entry.actor_label|default:'system' }}</span>
+                                {% endif %}
+                            </td>
+                            <td><span class="badge bg-light text-dark border small">{{ entry.get_action_display }}</span></td>
+                            <td class="small">{{ entry.entity_label|default:entry.get_entity_type_display }}</td>
+                            <td class="small text-muted">{{ entry.summary }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted small mb-0">Nothing recorded for this account yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

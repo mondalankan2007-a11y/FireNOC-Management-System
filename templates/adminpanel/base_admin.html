@@ -61,23 +61,26 @@ rather than repeated per page. Child templates fill in:
                             <i class="bi bi-grid-1x2-fill me-2"></i>Module Overview
                         </a>
 
-                        <!-- 2. Department Dashboard -->
-                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                        <!-- 2. Department Dashboard (Available) -->
+                        <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"
+                           {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}
+                           href="{% url 'adminpanel:dashboard' %}">
                             <i class="bi bi-speedometer2 me-2"></i>Dashboard
-                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
-                        </span>
+                        </a>
 
-                        <!-- 3. Applicant Records -->
-                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                        <!-- 3. Applicant Records (Available) -->
+                        <a class="nav-link {% if 'applicant' in request.resolver_match.url_name %}active{% endif %}"
+                           {% if 'applicant' in request.resolver_match.url_name %}aria-current="page"{% endif %}
+                           href="{% url 'adminpanel:applicant_list' %}">
                             <i class="bi bi-people me-2"></i>Applicants
-                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
-                        </span>
+                        </a>
 
-                        <!-- 4. Fire Officer Management -->
-                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                        <!-- 4. Fire Officer Management (Available) -->
+                        <a class="nav-link {% if 'officer' in request.resolver_match.url_name %}active{% endif %}"
+                           {% if 'officer' in request.resolver_match.url_name %}aria-current="page"{% endif %}
+                           href="{% url 'adminpanel:officer_list' %}">
                             <i class="bi bi-person-badge me-2"></i>Officers
-                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
-                        </span>
+                        </a>
 
                         <!-- 5. Application Monitoring Queue -->
                         <span class="nav-link disabled text-muted" aria-disabled="true">
@@ -85,11 +88,12 @@ rather than repeated per page. Child templates fill in:
                             <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
                         </span>
 
-                        <!-- 6. NOC Certificate Issuance -->
-                        <span class="nav-link disabled text-muted" aria-disabled="true">
+                        <!-- 6. NOC Certificate Issuance (Available) -->
+                        <a class="nav-link {% if 'noc' in request.resolver_match.url_name %}active{% endif %}"
+                           {% if 'noc' in request.resolver_match.url_name %}aria-current="page"{% endif %}
+                           href="{% url 'adminpanel:noc_list' %}">
                             <i class="bi bi-patch-check me-2"></i>NOC Certificates
-                            <span class="badge bg-light text-muted border ms-auto small fw-normal">Soon</span>
-                        </span>
+                        </a>
 
                         <!-- 7. Reports & Analytics -->
                         <span class="nav-link disabled text-muted" aria-disabled="true">

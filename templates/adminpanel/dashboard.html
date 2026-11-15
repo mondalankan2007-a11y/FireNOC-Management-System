@@ -1,0 +1,310 @@
+{% extends 'adminpanel/base_admin.html' %}
+{% load static %}
+
+{% block page_title %}Department Dashboard{% endblock %}
+
+{% block breadcrumb %}
+    <li class="breadcrumb-item"><a href="{% url 'adminpanel:admin_home' %}">Admin Portal</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Dashboard</li>
+{% endblock %}
+
+{% block admin_page_heading %}Department Dashboard{% endblock %}
+{% block admin_page_subtitle %}
+    System-wide view of applications, inspections, deficiencies and certificates.
+{% endblock %}
+
+{% block admin_content %}
+<!-- Headline counts -->
+<div class="row g-3 mb-4">
+    <div class="col-6 col-xl-3">
+        <div class="dashboard-stat-card stat-navy h-100">
+            <div class="dashboard-stat-icon"><i class="bi bi-file-earmark-text"></i></div>
+            <div class="dashboard-stat-number">{{ counts.applications }}</div>
+            <div class="text-muted small">Applications</div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="dashboard-stat-card stat-amber h-100">
+            <div class="dashboard-stat-icon"><i class="bi bi-hourglass-split"></i></div>
+            <div class="dashboard-stat-number">{{ counts.awaiting_action }}</div>
+            <div class="text-muted small">Awaiting a decision</div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="dashboard-stat-card stat-red h-100">
+            <div class="dashboard-stat-icon"><i class="bi bi-exclamation-triangle"></i></div>
+            <div class="dashboard-stat-number">{{ counts.open_deficiencies }}</div>
+            <div class="text-muted small">Open deficiencies</div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="dashboard-stat-card stat-green h-100">
+            <div class="dashboard-stat-icon"><i class="bi bi-award"></i></div>
+            <div class="dashboard-stat-number">{{ counts.nocs_issued }}</div>
+            <div class="text-muted small">NOCs issued</div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Status breakdown -->
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <div class="d-flex justify-content-between align-items-start mb-3">
+                    <div>
+                        <h5 class="fw-bold mb-1">Applications by status</h5>
+                        {% if status_is_precomputed %}
+                            <p class="text-muted small mb-0">
+                                <i class="bi bi-database me-1"></i>
+                                From <code>mv_department_statistics</code>, a materialized view.
+                                {% if last_refreshed_at %}
+                                    Last refreshed {{ last_refreshed_at|timesince }} ago.
+                                {% else %}
+                                    Not refreshed yet.
+                                {% endif %}
+                            </p>
+                        {% else %}
+                            <p class="text-muted small mb-0">Counted live.</p>
+                        {% endif %}
+                    </div>
+                    {% if status_is_precomputed %}
+                    <form method="post" action="{% url 'adminpanel:refresh_statistics' %}" class="m-0">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+
+                {% if status_breakdown %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr class="text-muted small text-uppercase">
+                                <th>Status</th>
+                                <th class="text-end">Applications</th>
+                                {% if status_is_precomputed %}<th class="text-end">Renewals</th>{% endif %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in status_breakdown %}
+                            <tr>
+                                <td><span class="badge bg-light text-dark border">{{ row.0 }}</span></td>
+                                <td class="text-end fw-semibold">{{ row.1 }}</td>
+                                {% if status_is_precomputed %}<td class="text-end text-muted">{{ row.2 }}</td>{% endif %}
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">
+                    No figures yet. Press Refresh to populate the materialized view.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Open deficiencies by severity -->
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-1">Open deficiencies</h5>
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-eye me-1"></i>From <code>v_deficiency_summary</code>, counted live.
+                </p>
+                {% if deficiencies %}
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr class="text-muted small text-uppercase">
+                            <th>Severity</th>
+                            <th class="text-end">Count</th>
+                            <th class="text-end">Avg days open</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in deficiencies %}
+                        <tr>
+                            <td>
+                                <span class="badge {% if row.0 == 'CRITICAL' %}bg-danger{% elif row.0 == 'MAJOR' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                                    {{ row.0 }}
+                                </span>
+                            </td>
+                            <td class="text-end fw-semibold">{{ row.1 }}</td>
+                            <td class="text-end text-muted">{{ row.2|default_if_none:'—' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted small mb-0">No open deficiencies.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Longest waiting applications -->
+    <div class="col-lg-7">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-1">Waiting longest</h5>
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-eye me-1"></i>From <code>v_application_overview</code>.
+                </p>
+                {% if oldest_waiting %}
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr class="text-muted small text-uppercase">
+                            <th>Reference</th><th>Building</th><th>Status</th>
+                            <th class="text-end">Days</th><th class="text-end">Open def.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in oldest_waiting %}
+                        <tr>
+                            <td class="small fw-semibold">{{ row.0 }}</td>
+                            <td class="small text-truncate" style="max-width: 160px;">{{ row.1 }}</td>
+                            <td><span class="badge bg-light text-dark border small">{{ row.2 }}</span></td>
+                            <td class="text-end">{{ row.3 }}</td>
+                            <td class="text-end {% if row.4 %}text-danger fw-semibold{% else %}text-muted{% endif %}">{{ row.4 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted small mb-0">Nothing is waiting.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Officer workload -->
+    <div class="col-lg-5">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h5 class="fw-bold mb-1">Officer workload</h5>
+                <p class="text-muted small mb-3">
+                    <i class="bi bi-eye me-1"></i>From <code>v_officer_workload</code>.
+                </p>
+                {% if officers %}
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr class="text-muted small text-uppercase">
+                            <th>Officer</th><th class="text-end">Inspections</th><th class="text-end">Scheduled</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in officers %}
+                        <tr>
+                            <td class="small">{{ row.1 }}</td>
+                            <td class="text-end fw-semibold">{{ row.2 }}</td>
+                            <td class="text-end text-muted">{{ row.3 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted small mb-0">No officers registered.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent activity -->
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+                    <div>
+                        <h5 class="fw-bold mb-1">Recent activity</h5>
+                        <p class="text-muted small mb-0">
+                            <i class="bi bi-journal-text me-1"></i>
+                            From <code>adminpanel_auditlog</code>. Entries written by the
+                            application name the person responsible; entries written by a
+                            database trigger prove a change happened without being able to.
+                        </p>
+                    </div>
+
+                    <form method="get" class="d-flex gap-2 align-items-center">
+                        <select name="entity" class="form-select form-select-sm" style="width: auto;">
+                            <option value="">All records</option>
+                            {% for value, label in activity_filters.entity_types %}
+                            <option value="{{ value }}" {% if activity_filters.selected_entity == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <select name="action" class="form-select form-select-sm" style="width: auto;">
+                            <option value="">All actions</option>
+                            {% for value, label in activity_filters.actions %}
+                            <option value="{{ value }}" {% if activity_filters.selected_action == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">Filter</button>
+                        {% if activity_filters.selected_entity or activity_filters.selected_action %}
+                        <a href="{% url 'adminpanel:dashboard' %}" class="btn btn-link btn-sm text-muted px-1">Clear</a>
+                        {% endif %}
+                    </form>
+                </div>
+
+                {% if activity_counts %}
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <span class="text-muted small align-self-center me-1">Last 7 days:</span>
+                    {% for action, total in activity_counts %}
+                    <span class="badge bg-light text-dark border">{{ action }} <strong>{{ total }}</strong></span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if activity %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr class="text-muted small text-uppercase">
+                                <th>When</th><th>Who</th><th>Action</th>
+                                <th>Record</th><th>Detail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in activity %}
+                            <tr>
+                                <td class="small text-muted text-nowrap">{{ entry.created_at|timesince }} ago</td>
+                                <td class="small">
+                                    {% if entry.actor %}
+                                        <i class="bi bi-person-circle text-muted me-1"></i>{{ entry.actor_label }}
+                                    {% else %}
+                                        <span class="text-muted" title="Recorded by a database trigger, which cannot know the user">
+                                            <i class="bi bi-hdd-stack me-1"></i>{{ entry.actor_label|default:'system' }}
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <span class="badge {% if entry.action == 'REJECT' or entry.action == 'REVOKE' %}bg-danger-subtle text-danger border border-danger-subtle{% elif entry.action == 'APPROVE' or entry.action == 'ISSUE' %}bg-success-subtle text-success border border-success-subtle{% else %}bg-light text-dark border{% endif %} small">
+                                        {{ entry.get_action_display }}
+                                    </span>
+                                </td>
+                                <td class="small">
+                                    <span class="text-muted">{{ entry.get_entity_type_display }}</span>
+                                    {% if entry.entity_label %}<br><span class="fw-semibold">{{ entry.entity_label }}</span>{% endif %}
+                                </td>
+                                <td class="small text-muted" style="max-width: 320px;">{{ entry.summary }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">
+                    {% if activity_filters.selected_entity or activity_filters.selected_action %}
+                        No activity matches that filter.
+                    {% else %}
+                        Nothing has been recorded yet.
+                    {% endif %}
+                </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

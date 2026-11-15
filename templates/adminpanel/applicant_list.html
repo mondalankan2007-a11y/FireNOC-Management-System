@@ -1,0 +1,164 @@
+{% extends 'adminpanel/base_admin.html' %}
+{% load static %}
+
+{% block page_title %}Applicants{% endblock %}
+
+{% block breadcrumb %}
+    <li class="breadcrumb-item"><a href="{% url 'adminpanel:admin_home' %}">Admin Portal</a></li>
+    <li class="breadcrumb-item active" aria-current="page">Applicants</li>
+{% endblock %}
+
+{% block admin_page_heading %}Registered Applicants{% endblock %}
+{% block admin_page_subtitle %}
+    Every account that files Fire NOC applications, with its activity.
+{% endblock %}
+
+{% block admin_content %}
+<div class="card border-0 shadow-sm">
+    <div class="card-body p-4">
+        <!-- Search and filters -->
+        <form method="get" class="row g-2 align-items-end mb-4">
+            <div class="col-md-5">
+                <label for="q" class="form-label small text-muted mb-1">Search</label>
+                <div class="input-group">
+                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                    <input type="search" class="form-control" id="q" name="q"
+                           value="{{ search }}"
+                           placeholder="Name, username, email, mobile or application number">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label for="status" class="form-label small text-muted mb-1">Show</label>
+                <select class="form-select" id="status" name="status">
+                    <option value="">Everyone</option>
+                    <option value="active" {% if status == 'active' %}selected{% endif %}>Active accounts</option>
+                    <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>Deactivated accounts</option>
+                    <option value="with_applications" {% if status == 'with_applications' %}selected{% endif %}>Has applications</option>
+                    <option value="no_applications" {% if status == 'no_applications' %}selected{% endif %}>Never applied</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label for="sort" class="form-label small text-muted mb-1">Sort by</label>
+                <select class="form-select" id="sort" name="sort">
+                    <option value="recent" {% if sort == 'recent' %}selected{% endif %}>Recent activity</option>
+                    <option value="applications" {% if sort == 'applications' %}selected{% endif %}>Applications</option>
+                    <option value="name" {% if sort == 'name' %}selected{% endif %}>Name</option>
+                    <option value="username" {% if sort == 'username' %}selected{% endif %}>Username</option>
+                    <option value="joined" {% if sort == 'joined' %}selected{% endif %}>Date joined</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-danger flex-grow-1">Apply</button>
+                {% if search or status %}
+                <a href="{% url 'adminpanel:applicant_list' %}" class="btn btn-outline-secondary">Clear</a>
+                {% endif %}
+            </div>
+        </form>
+
+        <!-- Result summary -->
+        <p class="text-muted small mb-3">
+            {% if total %}
+                Showing {{ page.start_index }}–{{ page.end_index }} of {{ total }}
+                applicant{{ total|pluralize }}{% if search %} matching “{{ search }}”{% endif %}.
+            {% else %}
+                No applicants{% if search %} match “{{ search }}”{% endif %}.
+            {% endif %}
+        </p>
+
+        {% if page.object_list %}
+        <div class="table-responsive">
+            <table class="table align-middle">
+                <thead>
+                    <tr class="text-muted small text-uppercase">
+                        <th>Applicant</th>
+                        <th>Contact</th>
+                        <th class="text-end">Applications</th>
+                        <th>Last filed</th>
+                        <th>Joined</th>
+                        <th class="text-end">Account</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for applicant in page.object_list %}
+                    <tr>
+                        <td>
+                            <div class="fw-semibold">
+                                <a href="{% url 'adminpanel:applicant_detail' applicant.pk %}"
+                                   class="text-decoration-none">
+                                    {{ applicant.get_full_name|default:applicant.username }}
+                                </a>
+                            </div>
+                            <div class="small text-muted">{{ applicant.username }}</div>
+                        </td>
+                        <td class="small">
+                            {% if applicant.email %}
+                                <div><i class="bi bi-envelope text-muted me-1"></i>{{ applicant.email }}</div>
+                            {% endif %}
+                            {% if applicant.applicant_profile.mobile_number %}
+                                <div class="text-muted">
+                                    <i class="bi bi-telephone me-1"></i>{{ applicant.applicant_profile.mobile_number }}
+                                </div>
+                            {% else %}
+                                <div class="text-muted fst-italic">No number on record</div>
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if applicant.application_count %}
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                    {{ applicant.application_count }}
+                                </span>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="small text-muted">
+                            {% if applicant.last_application_at %}
+                                {{ applicant.last_application_at|timesince }} ago
+                            {% else %}
+                                Never
+                            {% endif %}
+                        </td>
+                        <td class="small text-muted">{{ applicant.date_joined|date:"d M Y" }}</td>
+                        <td class="text-end">
+                            {% if applicant.is_active %}
+                                <span class="badge bg-success-subtle text-success border border-success-subtle">Active</span>
+                            {% else %}
+                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Deactivated</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Paging -->
+        {% if page.paginator.num_pages > 1 %}
+        <nav aria-label="Applicant pages" class="mt-3">
+            <ul class="pagination pagination-sm mb-0">
+                {# previous_page_number raises on the first page, so it is only
+                   evaluated when there is one; |default cannot catch that. #}
+                <li class="page-item {% if not page.has_previous %}disabled{% endif %}">
+                    {% if page.has_previous %}
+                    <a class="page-link" href="?page={{ page.previous_page_number }}{% if querystring %}&{{ querystring }}{% endif %}">Previous</a>
+                    {% else %}
+                    <span class="page-link">Previous</span>
+                    {% endif %}
+                </li>
+                <li class="page-item disabled">
+                    <span class="page-link">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+                </li>
+                <li class="page-item {% if not page.has_next %}disabled{% endif %}">
+                    {% if page.has_next %}
+                    <a class="page-link" href="?page={{ page.next_page_number }}{% if querystring %}&{{ querystring }}{% endif %}">Next</a>
+                    {% else %}
+                    <span class="page-link">Next</span>
+                    {% endif %}
+                </li>
+            </ul>
+        </nav>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

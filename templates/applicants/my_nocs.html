@@ -134,7 +134,9 @@
                                                 <div class="fw-bold text-danger">
                                                     <i class="bi bi-file-earmark-check-fill me-1"></i>{{ item.certificate_number }}
                                                 </div>
-                                                <small class="text-muted">App ID: {{ item.application.pk }}</small>
+                                                <small class="text-muted d-block">
+                                                    Application: {{ item.application.application_id }}
+                                                </small>
                                             </td>
                                             <td>
                                                 <div class="fw-semibold text-dark">{{ item.application.building_name }}</div>

@@ -1,0 +1,229 @@
+{% extends 'adminpanel/base_admin.html' %}
+{% load static %}
+
+{% block page_title %}{{ officer.get_full_name|default:officer.username }}{% endblock %}
+
+{% block breadcrumb %}
+    <li class="breadcrumb-item"><a href="{% url 'adminpanel:admin_home' %}">Admin Portal</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'adminpanel:officer_list' %}">Officers</a></li>
+    <li class="breadcrumb-item active" aria-current="page">{{ profile.officer_id }}</li>
+{% endblock %}
+
+{% block admin_page_heading %}{{ officer.get_full_name|default:officer.username }}{% endblock %}
+{% block admin_page_subtitle %}{{ profile.designation }} &bull; {{ profile.officer_id }}{% endblock %}
+
+{% block admin_content %}
+<div class="row g-4">
+    <!-- Officer record -->
+    <div class="col-lg-4">
+        <div class="card border-0 shadow-sm h-100">
+            <div class="card-body p-4">
+                <h6 class="fw-bold text-uppercase small text-muted mb-3">Officer record</h6>
+                <dl class="mb-0 small">
+                    <dt class="text-muted fw-normal">Officer ID</dt>
+                    <dd class="fw-semibold">{{ profile.officer_id }}</dd>
+
+                    <dt class="text-muted fw-normal">Designation</dt>
+                    <dd class="fw-semibold">{{ profile.designation }}</dd>
+
+                    <dt class="text-muted fw-normal">Badge number</dt>
+                    <dd class="fw-semibold">{{ profile.badge_number|default:"—" }}</dd>
+
+                    <dt class="text-muted fw-normal">Username</dt>
+                    <dd class="fw-semibold">{{ officer.username }}</dd>
+
+                    <dt class="text-muted fw-normal">Email</dt>
+                    <dd class="fw-semibold">{{ officer.email|default:"—" }}</dd>
+
+                    <dt class="text-muted fw-normal">Phone</dt>
+                    <dd class="fw-semibold">{{ profile.phone|default:"—" }}</dd>
+
+                    <dt class="text-muted fw-normal">On record since</dt>
+                    <dd class="fw-semibold">{{ profile.created_at|date:"d M Y" }}</dd>
+
+                    <dt class="text-muted fw-normal">Status</dt>
+                    <dd class="mb-3">
+                        {% if profile.is_active and officer.is_active %}
+                            <span class="badge bg-success-subtle text-success border border-success-subtle">Active</span>
+                        {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Deactivated</span>
+                            {% if profile.is_active and not officer.is_active %}
+                                <div class="small text-muted mt-1">
+                                    The profile is active but the account is disabled,
+                                    so this officer cannot sign in.
+                                </div>
+                            {% endif %}
+                        {% endif %}
+                    </dd>
+                </dl>
+
+                <!-- Activation control -->
+                <hr class="my-3">
+                {% if is_active %}
+                    {% if outstanding.scheduled_inspections %}
+                    <div class="alert alert-warning small py-2 mb-3">
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        {{ outstanding.scheduled_inspections }} scheduled
+                        inspection{{ outstanding.scheduled_inspections|pluralize }}
+                        {{ outstanding.scheduled_inspections|pluralize:"is,are" }}
+                        assigned to this officer and will need reassigning.
+                    </div>
+                    {% endif %}
+                    <button type="button" class="btn btn-outline-danger btn-sm w-100"
+                            data-bs-toggle="modal" data-bs-target="#deactivateOfficer">
+                        <i class="bi bi-person-dash me-1"></i>Deactivate officer
+                    </button>
+                {% else %}
+                    <form method="post" action="{% url 'adminpanel:officer_set_active' profile.pk %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="activate">
+                        <button type="submit" class="btn btn-outline-success btn-sm w-100">
+                            <i class="bi bi-person-check me-1"></i>Reactivate officer
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Deactivation confirmation -->
+    <div class="modal fade" id="deactivateOfficer" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Deactivate {{ profile.officer_id }}?</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">
+                        {{ officer.get_full_name|default:officer.username }} will no longer
+                        be able to sign in, and will stop appearing as an available officer.
+                    </p>
+                    {% if outstanding.scheduled_inspections or outstanding.open_deficiencies %}
+                    <div class="alert alert-warning small mb-2">
+                        <strong>Outstanding work</strong>
+                        <ul class="mb-0 ps-3">
+                            {% if outstanding.scheduled_inspections %}
+                            <li>{{ outstanding.scheduled_inspections }} scheduled or in-progress inspection{{ outstanding.scheduled_inspections|pluralize }}</li>
+                            {% endif %}
+                            {% if outstanding.open_deficiencies %}
+                            <li>{{ outstanding.open_deficiencies }} open deficienc{{ outstanding.open_deficiencies|pluralize:"y,ies" }} they raised</li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                    <p class="small text-muted mb-0">
+                        This can be undone by reactivating them. The change is recorded
+                        in the audit log against your account.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <form method="post" action="{% url 'adminpanel:officer_set_active' profile.pk %}" class="m-0">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="deactivate">
+                        <button type="submit" class="btn btn-danger">
+                            <i class="bi bi-person-dash me-1"></i>Deactivate
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Workload -->
+    <div class="col-lg-8">
+        <div class="row g-3">
+            <div class="col-6 col-xl-3">
+                <div class="dashboard-stat-card stat-navy h-100">
+                    <div class="dashboard-stat-number">{{ workload.inspections_total|default_if_none:0 }}</div>
+                    <div class="text-muted small">Inspections</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="dashboard-stat-card stat-amber h-100">
+                    <div class="dashboard-stat-number">{{ workload.inspections_scheduled|default_if_none:0 }}</div>
+                    <div class="text-muted small">Scheduled</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="dashboard-stat-card stat-green h-100">
+                    <div class="dashboard-stat-number">{{ workload.inspections_completed|default_if_none:0 }}</div>
+                    <div class="text-muted small">Completed</div>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="dashboard-stat-card stat-red h-100">
+                    <div class="dashboard-stat-number">{{ workload.deficiencies_raised|default_if_none:0 }}</div>
+                    <div class="text-muted small">Deficiencies raised</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm mt-3">
+            <div class="card-body p-4">
+                <h6 class="fw-bold text-uppercase small text-muted mb-3">Inspections conducted</h6>
+                {% if inspections %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr class="text-muted small text-uppercase">
+                                <th>Scheduled</th><th>Application</th><th>Building</th><th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for inspection in inspections %}
+                            <tr>
+                                <td class="small text-muted text-nowrap">
+                                    {{ inspection.scheduled_date|date:"d M Y" }}
+                                </td>
+                                <td class="small fw-semibold">{{ inspection.application.application_id }}</td>
+                                <td class="small text-truncate" style="max-width: 180px;">
+                                    {{ inspection.application.building_name }}
+                                </td>
+                                <td>
+                                    <span class="badge bg-light text-dark border small">{{ inspection.status }}</span>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">This officer has conducted no inspections.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Activity -->
+    <div class="col-12">
+        <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+                <h6 class="fw-bold text-uppercase small text-muted mb-3">Recorded actions</h6>
+                {% if activity %}
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr class="text-muted small text-uppercase">
+                            <th>When</th><th>Action</th><th>Record</th><th>Detail</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in activity %}
+                        <tr>
+                            <td class="small text-muted text-nowrap">{{ entry.created_at|timesince }} ago</td>
+                            <td><span class="badge bg-light text-dark border small">{{ entry.get_action_display }}</span></td>
+                            <td class="small">{{ entry.entity_label|default:entry.get_entity_type_display }}</td>
+                            <td class="small text-muted">{{ entry.summary }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p class="text-muted small mb-0">Nothing recorded for this officer yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

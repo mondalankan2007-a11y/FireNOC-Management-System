@@ -600,3 +600,89 @@ Django's ORM cannot declare a composite foreign key, so this one is created by
 raw SQL in `officers/migrations/0006_deficiency_application_consistency.py`,
 guarded to run only on PostgreSQL. On the SQLite development fallback the rule
 remains an application-level guarantee only.
+
+
+---
+
+## 10. Reporting layer views
+
+Created by `adminpanel/migrations/0004_reporting_views.py`, PostgreSQL only.
+The admin dashboard, the monitoring queue and the reports page read the same
+few shapes of aggregated data; defining those shapes once in the database gives
+every consumer the same definition of, for example, "an open deficiency".
+
+| Object | Kind | Answers |
+|---|---|---|
+| `v_application_overview` | view | One row per application with its applicant, latest inspection, result and deficiency counts |
+| `v_officer_workload` | view | Inspections and deficiencies per officer |
+| `v_deficiency_summary` | view | Deficiency counts and average days open, by severity and status |
+| `mv_department_statistics` | **materialized** view | Applications, renewals and average area per status |
+
+### Why one of them is materialized
+
+An ordinary view is a stored query, re-evaluated on every read: always current,
+and it costs whatever its query costs. A materialized view stores the result, so
+reads are a cheap scan of a small table, but the data is only as fresh as the
+last refresh.
+
+[query-plans.md](query-plans.md) measured the dashboard's count-by-status query
+as a sequential scan that no index improves, because the answer depends on every
+row. That is precisely the case a materialized view exists for: the dashboard
+reads a handful of precomputed rows instead of scanning the table on every page
+load, at the cost of being as stale as the last refresh.
+
+```
+python manage.py refreshviews
+```
+
+The materialized view carries a unique index on `status`, which is what permits
+`REFRESH MATERIALIZED VIEW CONCURRENTLY` — a refresh that does not take an
+exclusive lock, so the dashboard keeps serving while it runs. The command falls
+back to a blocking refresh the first time, since `CONCURRENTLY` cannot populate
+a view that has never held data.
+
+### A note on view dependencies
+
+A view pins the types of the columns it selects. `v_application_overview`
+selects `auth_user.email`, so the migration that creates it must run after
+Django's own `auth` migrations have finished altering that column — otherwise
+creating a test database fails with *cannot alter type of a column used by a
+view*. The migration therefore depends on `auth.0012` explicitly.
+
+
+---
+
+## 11. Audit triggers
+
+Created by `adminpanel/migrations/0005_audit_triggers.py`, PostgreSQL only.
+Three `AFTER UPDATE ... FOR EACH ROW` triggers on `applicants_application`,
+`officers_inspection` and `officers_deficiency` call one shared function,
+`fn_audit_status_change()`, which writes a row into `adminpanel_auditlog`
+whenever a `status` column actually changes.
+
+The function is written once and parameterised through `TG_ARGV`: the first
+argument is the audit entity type, the second the column that names the row in
+a way a person would recognise (`application_id`, `title`). It compares with
+`IS DISTINCT FROM`, so rewriting the same status, or updating any other column,
+records nothing.
+
+### Why triggers as well as application-level auditing
+
+The admin module writes audit entries from Python for the actions it performs,
+and those entries name the user responsible. That only covers changes that go
+through the application. A status altered by a data migration, a management
+command, a `queryset.update()` or someone at a `psql` prompt bypasses
+`Model.save()` entirely and would leave no trace.
+
+A trigger fires inside the database whatever issued the statement, so it cannot
+be bypassed by the application. The trade is attribution: the database does not
+know which person is behind a connection, so these entries carry no `actor` and
+are labelled `database trigger`. The two mechanisms answer different questions.
+An application entry says *who* did something. A trigger entry proves *that* it
+happened, and that nothing in the application recorded it.
+
+### Implementation note
+
+`schema_editor.execute()` passes SQL through a DB-API cursor, which reads `%`
+as a parameter marker. Every literal `%` in the trigger function — the
+`format()` placeholders — is written doubled in the migration for that reason.
