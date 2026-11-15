@@ -11,6 +11,8 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from . import queries, statistics
+from officers.models import OfficerProfile
+
 from .models import AuditLog
 
 
@@ -245,6 +247,52 @@ def applicant_detail(request, user_id):
         },
     }
     return render(request, 'adminpanel/applicant_detail.html', context)
+
+
+@admin_required
+def officer_list(request):
+    """Fire officers, with the workload each is carrying."""
+    search = request.GET.get('q', '').strip()
+    status = request.GET.get('status', '')
+    sort = request.GET.get('sort', queries.DEFAULT_OFFICER_SORT)
+    if sort not in queries.OFFICER_SORTS:
+        sort = queries.DEFAULT_OFFICER_SORT
+
+    results = queries.officers(search=search, status=status, sort=sort)
+    page = Paginator(results, 20).get_page(request.GET.get('page'))
+
+    # One lookup for the whole page, attached to each row, rather than a
+    # query per officer or a lookup the template cannot express.
+    workload = queries.officer_workload_map()
+    for profile in page.object_list:
+        profile.workload = workload.get(profile.user_id)
+
+    context = {
+        'page': page,
+        'search': search,
+        'status': status,
+        'sort': sort,
+        'total': page.paginator.count,
+        'querystring': urlencode(
+            {k: v for k, v in (('q', search), ('status', status), ('sort', sort)) if v}),
+    }
+    return render(request, 'adminpanel/officer_list.html', context)
+
+
+@admin_required
+def officer_detail(request, profile_id):
+    """One officer: their record, workload, inspections and recorded actions."""
+    profile = get_object_or_404(
+        OfficerProfile.objects.select_related('user'), pk=profile_id)
+
+    context = {
+        'profile': profile,
+        'officer': profile.user,
+        'workload': queries.officer_workload_map().get(profile.user_id),
+        'inspections': queries.officer_inspections(profile.user),
+        'activity': queries.officer_activity(profile.user),
+    }
+    return render(request, 'adminpanel/officer_detail.html', context)
 
 
 @admin_required

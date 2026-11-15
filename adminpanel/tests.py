@@ -1261,3 +1261,110 @@ class ApplicantDetailTests(TestCase):
         response = self.client.get(reverse('adminpanel:applicant_list'))
 
         self.assertContains(response, f'/admin-panel/applicants/{self.applicant.pk}/')
+
+
+class OfficerManagementTests(TestCase):
+    """Officer listing and detail."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin9', 'admin9@example.com', 'pw', is_staff=True)
+        self.user = User.objects.create_user(
+            'ravi', 'ravi@example.com', 'pw', first_name='Ravi', last_name='Sharma')
+        self.profile = OfficerProfile.objects.create(
+            user=self.user, officer_id='FO-101', designation='Station Officer',
+            badge_number='B-77', phone='9811122233')
+        self.list_url = reverse('adminpanel:officer_list')
+        self.detail_url = reverse('adminpanel:officer_detail', args=[self.profile.pk])
+        self.client.force_login(self.admin)
+
+    def _listed(self, **params):
+        response = self.client.get(self.list_url, params)
+        return [p.officer_id for p in response.context['page'].object_list]
+
+    def test_listing_requires_an_administrator(self):
+        self.client.logout()
+        self.assertRedirects(
+            self.client.get(self.list_url),
+            f'{reverse("adminpanel:login")}?next={self.list_url}')
+
+    def test_officers_are_listed_and_applicants_are_not(self):
+        User.objects.create_user('plain', 'plain@example.com', 'pw')
+
+        self.assertEqual(self._listed(), ['FO-101'])
+
+    def test_search_matches_officer_id_designation_badge_and_name(self):
+        for term in ('FO-101', 'Station', 'B-77', 'Ravi', 'ravi@example.com'):
+            self.assertEqual(self._listed(q=term), ['FO-101'], term)
+
+    def test_filter_by_active_state(self):
+        self.assertEqual(self._listed(status='active'), ['FO-101'])
+
+        self.profile.is_active = False
+        self.profile.save(update_fields=['is_active'])
+        self.assertEqual(self._listed(status='active'), [])
+        self.assertEqual(self._listed(status='inactive'), ['FO-101'])
+
+    def test_a_disabled_account_counts_as_deactivated(self):
+        # The profile is still active, but the account cannot sign in.
+        self.user.is_active = False
+        self.user.save(update_fields=['is_active'])
+
+        self.assertEqual(self._listed(status='active'), [])
+        self.assertEqual(self._listed(status='inactive'), ['FO-101'])
+
+    def test_unknown_sort_falls_back_to_the_default(self):
+        response = self.client.get(self.list_url, {'sort': 'nonsense'})
+
+        self.assertEqual(response.context['sort'], queries.DEFAULT_OFFICER_SORT)
+
+    @skipUnless(connection.vendor == 'postgresql', 'needs v_officer_workload')
+    def test_workload_is_attached_to_each_row(self):
+        applicant = User.objects.create_user('applicant19', 'a19@example.com', 'pw')
+        application = make_application(applicant)
+        Inspection.objects.create(
+            application=application, officer=self.user,
+            scheduled_date=date(2026, 12, 1), scheduled_time=time(10, 0),
+            status='COMPLETED')
+
+        row = self.client.get(self.list_url).context['page'].object_list[0]
+        self.assertEqual(row.workload['inspections_total'], 1)
+        self.assertEqual(row.workload['inspections_completed'], 1)
+
+    def test_detail_shows_the_officer_record(self):
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['profile'], self.profile)
+        self.assertContains(response, 'FO-101')
+        self.assertContains(response, 'B-77')
+
+    def test_detail_lists_inspections_conducted(self):
+        applicant = User.objects.create_user('applicant20', 'a20@example.com', 'pw')
+        application = make_application(applicant)
+        Inspection.objects.create(
+            application=application, officer=self.user,
+            scheduled_date=date(2026, 12, 1), scheduled_time=time(10, 0),
+            status='SCHEDULED')
+
+        inspections = self.client.get(self.detail_url).context['inspections']
+        self.assertEqual(len(inspections), 1)
+        self.assertEqual(inspections[0].application, application)
+
+    def test_detail_shows_recorded_actions(self):
+        AuditLog.objects.all().delete()
+        AuditLog.record(AuditLog.ACTION_APPROVE, AuditLog.ENTITY_INSPECTION,
+                        actor=self.user, entity_id=1, summary='Completed inspection')
+
+        activity = self.client.get(self.detail_url).context['activity']
+        self.assertEqual([e.summary for e in activity], ['Completed inspection'])
+
+    def test_unknown_officer_returns_404(self):
+        url = reverse('adminpanel:officer_detail', args=[999999])
+
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_listing_links_to_the_detail_page(self):
+        response = self.client.get(self.list_url)
+
+        self.assertContains(response, f'/admin-panel/officers/{self.profile.pk}/')

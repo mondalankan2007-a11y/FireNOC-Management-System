@@ -11,6 +11,8 @@ from django.db import connection
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
+from officers.models import Inspection, OfficerProfile
+
 from .models import AuditLog
 
 APPLICANT_SORTS = {
@@ -131,3 +133,78 @@ def applicant_activity(user, limit=20):
         criteria |= Q(entity_label__in=references)
 
     return list(AuditLog.objects.select_related('actor').filter(criteria)[:limit])
+
+
+OFFICER_SORTS = {
+    'officer_id': 'officer_id',
+    'name': 'user__first_name',
+    'designation': 'designation',
+    'joined': '-created_at',
+}
+DEFAULT_OFFICER_SORT = 'officer_id'
+
+
+def officers(search='', status='', sort=DEFAULT_OFFICER_SORT):
+    """
+    Fire officers, identified by owning an OfficerProfile.
+
+    Returns profiles rather than users, because the officer identity lives on
+    the profile: the officer_id, designation and badge number an administrator
+    searches by are not on the account.
+    """
+    queryset = OfficerProfile.objects.select_related('user')
+
+    if search:
+        queryset = queryset.filter(
+            Q(officer_id__icontains=search)
+            | Q(designation__icontains=search)
+            | Q(badge_number__icontains=search)
+            | Q(phone__icontains=search)
+            | Q(user__username__icontains=search)
+            | Q(user__first_name__icontains=search)
+            | Q(user__last_name__icontains=search)
+            | Q(user__email__icontains=search)
+        )
+
+    if status == 'active':
+        queryset = queryset.filter(is_active=True, user__is_active=True)
+    elif status == 'inactive':
+        queryset = queryset.filter(Q(is_active=False) | Q(user__is_active=False))
+
+    order = OFFICER_SORTS.get(sort, OFFICER_SORTS[DEFAULT_OFFICER_SORT])
+    return queryset.order_by(order, 'pk')
+
+
+def officer_workload_map():
+    """
+    Inspection and deficiency counts per officer account, keyed by user id.
+
+    Read from v_officer_workload so this page and the dashboard agree. One
+    query for the whole page rather than one per row, which is what a naive
+    implementation of this table would do.
+    """
+    if connection.vendor != 'postgresql':
+        return {}
+
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            select officer_user_id, inspections_total, inspections_scheduled,
+                   inspections_completed, deficiencies_raised, last_inspection_date
+              from v_officer_workload
+        """)
+        columns = [c[0] for c in cursor.description]
+        return {row[0]: dict(zip(columns, row)) for row in cursor.fetchall()}
+
+
+def officer_activity(user, limit=20):
+    """Audit entries where this officer was the actor."""
+    return list(AuditLog.objects.select_related('actor').filter(actor=user)[:limit])
+
+
+def officer_inspections(user, limit=25):
+    """Inspections this officer conducted, most recent first."""
+    return list(
+        Inspection.objects
+        .filter(officer=user)
+        .select_related('application')
+        .order_by('-scheduled_date', '-pk')[:limit])
