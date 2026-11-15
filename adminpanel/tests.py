@@ -1954,3 +1954,94 @@ class NOCScreenTests(TestCase):
 
         listed = self.client.get(self.url, {'q': noc.noc_number})
         self.assertEqual([n.pk for n in listed.context['page'].object_list], [noc.pk])
+
+
+class ApplicantFacingCertificateTests(TestCase):
+    """
+    The applicant module's certificate pages, now reading issued records.
+
+    These live here rather than in the applicant module's tests because the
+    behaviour they pin belongs to the NOC work: a certificate page needs a
+    certificate, and approval alone is not one.
+    """
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('cert1', 'c1@example.com', 'pw')
+        self.officer = User.objects.create_user('certofficer', 'co@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=self.officer, officer_id='FO-401', designation='Inspector')
+        self.admin = User.objects.create_user(
+            'deptadmin13', 'admin13@example.com', 'pw', is_staff=True)
+        self.application = make_issuable_application(self.applicant, self.officer)
+        self.client.force_login(self.applicant)
+
+    def test_approved_without_a_certificate_shows_nothing(self):
+        response = self.client.get(reverse('applicants:my_nocs'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['noc_list'], [])
+
+    def test_certificate_page_is_404_before_issue(self):
+        url = reverse('applicants:noc_certificate', args=[self.application.pk])
+
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_issued_certificate_appears_with_its_own_number(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        response = self.client.get(reverse('applicants:my_nocs'))
+        self.assertEqual(len(response.context['noc_list']), 1)
+        self.assertContains(response, noc.noc_number)
+        self.assertContains(response, self.application.application_id)
+
+    def test_certificate_page_shows_the_stored_dates(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        response = self.client.get(
+            reverse('applicants:noc_certificate', args=[self.application.pk]))
+        self.assertEqual(response.context['certificate_number'], noc.noc_number)
+        self.assertEqual(response.context['issue_date'], noc.issued_at.date())
+        self.assertEqual(response.context['valid_until'], noc.valid_until)
+
+    def test_editing_the_application_does_not_move_the_certificate_dates(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+        url = reverse('applicants:noc_certificate', args=[self.application.pk])
+        before = self.client.get(url).context['issue_date']
+
+        self.application.remarks = 'Edited after issue'
+        self.application.save()
+
+        after = self.client.get(url).context['issue_date']
+        self.assertEqual(before, after)
+        self.assertEqual(after, noc.issued_at.date())
+
+    def test_another_applicant_cannot_read_the_certificate(self):
+        services.issue_noc(self.application, actor=self.admin)
+        other = User.objects.create_user('cert2', 'c2@example.com', 'pw')
+        self.client.force_login(other)
+
+        url = reverse('applicants:noc_certificate', args=[self.application.pk])
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_pdf_is_named_after_the_certificate(self):
+        noc = services.issue_noc(self.application, actor=self.admin)
+
+        response = self.client.get(
+            reverse('applicants:noc_certificate_pdf', args=[self.application.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn(noc.noc_number.replace('/', '_'),
+                      response['Content-Disposition'])
+
+    def test_verification_number_is_stable_across_requests(self):
+        # The previous implementation used Python's hash(), which is
+        # randomised per process, so the printed "verification hash" changed
+        # after every server restart.
+        services.issue_noc(self.application, actor=self.admin)
+        url = reverse('applicants:noc_certificate_pdf', args=[self.application.pk])
+
+        first = self.client.get(url).content
+        second = self.client.get(url).content
+
+        self.assertEqual(first, second)

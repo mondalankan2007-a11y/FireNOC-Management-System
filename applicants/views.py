@@ -1414,18 +1414,42 @@ def inspection_details(request, application_id):
     return render(request, 'applicants/inspection_details.html', context)
 
 
-def generate_noc_pdf_bytes(application):
+def _certificate_digest(cert_no, issue_date):
+    """
+    A short, stable fingerprint of a certificate, printed on the PDF.
+
+    Deliberately derived only from values the certificate itself carries, so
+    the same certificate always produces the same digest and a reader can
+    check one against the other. The full tamper-evident hash over every
+    stored field is a separate piece of work in the Admin module.
+    """
+    import hashlib
+
+    return hashlib.sha256(f'{cert_no}|{issue_date}'.encode()).hexdigest()[:12].upper()
+
+
+def generate_noc_pdf_bytes(application, noc=None):
     """
     Pure Python standard PDF 1.4 binary generator for Fire NOC Certificate.
     Produces a valid, downloadable PDF without requiring external C libraries or packages.
+
+    When a NOC record is supplied, its stored number and dates are printed.
+    Those are the authoritative values: deriving them from the application's
+    last-modified timestamp meant an unrelated edit moved the certificate's
+    issue date, and its expiry with it.
     """
-    cert_no = application.application_id or f"NOC-{application.pk:04d}"
-    issue_date = application.updated_at.strftime("%d-%b-%Y")
-    valid_years = 3 if application.occupancy_type == 'RESIDENTIAL' else 1
-    try:
-        valid_until = (application.updated_at + datetime.timedelta(days=365 * valid_years)).strftime("%d-%b-%Y")
-    except Exception:
-        valid_until = "N/A"
+    if noc is not None:
+        cert_no = noc.noc_number
+        issue_date = noc.issued_at.strftime("%d-%b-%Y")
+        valid_until = noc.valid_until.strftime("%d-%b-%Y")
+    else:
+        cert_no = application.application_id or f"NOC-{application.pk:04d}"
+        issue_date = application.updated_at.strftime("%d-%b-%Y")
+        valid_years = 3 if application.occupancy_type == 'RESIDENTIAL' else 1
+        try:
+            valid_until = (application.updated_at + datetime.timedelta(days=365 * valid_years)).strftime("%d-%b-%Y")
+        except Exception:
+            valid_until = "N/A"
 
     applicant_name = (
         application.full_name
@@ -1464,7 +1488,11 @@ def generate_noc_pdf_bytes(application):
         (360, 260, 10, "Issued by Order of:"),
         (360, 245, 10, "Competent Fire Safety Authority"),
         (360, 230, 9, "Fire & Emergency Services Department"),
-        (50, 150, 8, f"Document generated via FireNOC Management Portal | Verification Hash: {abs(hash(cert_no)) % 100000000:08d}"),
+        # hashlib, not hash(): Python randomises hash() per process, so the
+        # same certificate printed a different "verification" number after
+        # every server restart. A digest of the certificate's own identity is
+        # stable and reproducible.
+        (50, 150, 8, f"Document generated via FireNOC Management Portal | Verification: {_certificate_digest(cert_no, issue_date)}"),
     ]
 
     stream_parts = ["BT"]
@@ -1643,21 +1671,29 @@ def my_nocs(request):
     Displays all issued Fire NOC certificates for approved applications
     belonging to the authenticated applicant.
     """
-    applications = Application.objects.filter(
-        applicant=request.user,
-        status__in=['APPROVED', 'NOC_ISSUED']
-    ).order_by('-updated_at')
+    # Certificates are records issued by the Admin module, not a view over
+    # approved applications: approval is a decision, issuance is a separate
+    # act. The dates come off the certificate rather than the application's
+    # last-modified timestamp, so editing an application no longer moves them.
+    from adminpanel.models import NOC
+
+    certificates = (NOC.objects
+                    .filter(application__applicant=request.user)
+                    .select_related('application')
+                    .order_by('-issued_at'))
 
     noc_list = []
-    for app in applications:
-        valid_years = 3 if app.occupancy_type == 'RESIDENTIAL' else 1
-        valid_until = app.updated_at + datetime.timedelta(days=365 * valid_years)
+    for noc in certificates:
         noc_list.append({
-            'application': app,
-            'certificate_number': app.application_id or f"NOC-{app.pk:04d}",
-            'issue_date': app.updated_at.date(),
-            'valid_until': valid_until.date(),
-            'validity_years': valid_years,
+            'application': noc.application,
+            'noc': noc,
+            'certificate_number': noc.noc_number,
+            'issue_date': noc.issued_at.date(),
+            'valid_until': noc.valid_until,
+            'validity_years': NOC.validity_years_for(
+                noc.application.occupancy_type),
+            'status': noc.status,
+            'is_currently_valid': noc.is_currently_valid,
         })
 
     context = {
@@ -1673,23 +1709,25 @@ def noc_certificate(request, application_id):
     View digital Fire NOC certificate for an approved application.
     Protected by applicant ownership check and approved status check.
     """
-    application = get_object_or_404(
-        Application.objects.filter(
-            applicant=request.user,
-            status__in=['APPROVED', 'NOC_ISSUED']
-        ),
-        pk=application_id
-    )
+    from adminpanel.models import NOC
 
-    valid_years = 3 if application.occupancy_type == 'RESIDENTIAL' else 1
-    valid_until = application.updated_at + datetime.timedelta(days=365 * valid_years)
+    # A certificate page needs a certificate. An approved application that the
+    # department has not yet issued one for has nothing to show here.
+    noc = get_object_or_404(
+        NOC.objects.select_related('application'),
+        application__pk=application_id,
+        application__applicant=request.user)
+    application = noc.application
 
     context = {
         'application': application,
-        'certificate_number': application.application_id or f"NOC-{application.pk:04d}",
-        'issue_date': application.updated_at.date(),
-        'valid_until': valid_until.date(),
-        'validity_years': valid_years,
+        'noc': noc,
+        'certificate_number': noc.noc_number,
+        'issue_date': noc.issued_at.date(),
+        'valid_until': noc.valid_until,
+        'validity_years': NOC.validity_years_for(application.occupancy_type),
+        'status': noc.status,
+        'is_currently_valid': noc.is_currently_valid,
     }
     return render(request, 'applicants/noc_certificate.html', context)
 
@@ -1700,16 +1738,16 @@ def noc_certificate_pdf(request, application_id):
     Download official Fire NOC certificate as a PDF file.
     Protected by applicant ownership check and approved status check.
     """
-    application = get_object_or_404(
-        Application.objects.filter(
-            applicant=request.user,
-            status__in=['APPROVED', 'NOC_ISSUED']
-        ),
-        pk=application_id
-    )
+    from adminpanel.models import NOC
 
-    pdf_bytes = generate_noc_pdf_bytes(application)
-    filename = f"Fire_NOC_{application.application_id or application.pk}.pdf"
+    noc = get_object_or_404(
+        NOC.objects.select_related('application'),
+        application__pk=application_id,
+        application__applicant=request.user)
+    application = noc.application
+
+    pdf_bytes = generate_noc_pdf_bytes(application, noc=noc)
+    filename = f"Fire_NOC_{noc.noc_number.replace('/', '_')}.pdf"
 
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="{filename}"'

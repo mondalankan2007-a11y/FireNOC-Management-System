@@ -2714,6 +2714,22 @@ class ApplicantModuleIntegrationTests(TestCase):
         self.my_nocs_url = reverse('applicants:my_nocs')
         self.certificate_url = reverse('applicants:noc_certificate', args=[self.app_approved.pk])
         self.pdf_url = reverse('applicants:noc_certificate_pdf', args=[self.app_approved.pk])
+        # A certificate is now a record the Admin module issues, rather than
+        # something derived from an approved application. These pages show
+        # issued certificates, so the approved application needs one.
+        from django.utils import timezone as _timezone
+
+        from adminpanel.models import NOC
+
+        issued_on = _timezone.now()
+        self.noc_approved = NOC.objects.create(
+            application=self.app_approved,
+            noc_number=NOC.next_number(issued_on.year),
+            issued_at=issued_on,
+            valid_from=issued_on.date(),
+            valid_until=issued_on.date().replace(year=issued_on.year + 1),
+        )
+
         self.profile_url = reverse('applicants:profile')
 
     def test_01_dashboard_7_metrics(self):
@@ -2850,7 +2866,12 @@ class ApplicantModuleIntegrationTests(TestCase):
         resp_pdf = self.client.get(self.pdf_url)
         self.assertEqual(resp_pdf.status_code, 200)
         self.assertEqual(resp_pdf['Content-Type'], 'application/pdf')
-        self.assertIn(f'Fire_NOC_{self.app_approved.application_id}.pdf', resp_pdf['Content-Disposition'])
+        # The file is named after the certificate rather than the application:
+        # it is the certificate that is being downloaded, and the two now have
+        # separate number series.
+        self.assertIn(
+            f"Fire_NOC_{self.noc_approved.noc_number.replace('/', '_')}.pdf",
+            resp_pdf['Content-Disposition'])
         self.assertTrue(resp_pdf.content.startswith(b'%PDF-1.4'))
 
     def test_09_noc_access_restricted_for_unapproved_or_cross_applicant(self):
