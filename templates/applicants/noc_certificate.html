@@ -1,0 +1,160 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Fire Safety Certificate – {{ certificate_number }} | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <!-- Breadcrumb & Action Bar (Hidden on Print) -->
+    <div class="d-print-none mb-4 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb mb-0">
+                <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'applicants:dashboard' %}">Dashboard</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'applicants:my_nocs' %}">My NOCs</a></li>
+                <li class="breadcrumb-item active" aria-current="page">{{ certificate_number }}</li>
+            </ol>
+        </nav>
+        <div class="d-flex gap-2">
+            <button onclick="window.print()" class="btn btn-outline-secondary shadow-sm">
+                <i class="bi bi-printer me-1"></i>Print Certificate
+            </button>
+            <a href="{% url 'applicants:noc_certificate_pdf' application.pk %}" class="btn btn-danger shadow-sm">
+                <i class="bi bi-file-earmark-pdf-fill me-1"></i>Download PDF
+            </a>
+            <a href="{% url 'applicants:application_details' application.pk %}" class="btn btn-outline-dark shadow-sm">
+                <i class="bi bi-arrow-left me-1"></i>Application Details
+            </a>
+        </div>
+    </div>
+
+    <!-- Official Certificate Card -->
+    <div class="card border-0 shadow-lg p-md-5 p-4 bg-white" style="border: 4px double #b02a37 !important; border-radius: 8px;">
+        <div class="text-center mb-4 pb-3 border-bottom border-2 border-danger">
+            <div class="d-inline-block p-3 rounded-circle bg-danger-subtle text-danger mb-2">
+                <i class="bi bi-shield-fill-check display-4"></i>
+            </div>
+            <h5 class="text-uppercase tracking-wider text-muted fw-semibold mb-1">Government Fire & Emergency Services Department</h5>
+            <h2 class="display-6 fw-bold text-dark mb-1">FIRE SAFETY CERTIFICATE</h2>
+            <p class="text-danger fw-semibold mb-0 fs-6">(NO OBJECTION CERTIFICATE / NOC)</p>
+        </div>
+
+        <!-- Certificate Metadata Grid -->
+        <div class="row g-3 p-3 bg-light rounded border mb-4">
+            <div class="col-sm-6 col-md-3">
+                <small class="text-muted d-block text-uppercase fw-semibold">Certificate No.</small>
+                <div class="fw-bold text-danger fs-6">{{ certificate_number }}</div>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <small class="text-muted d-block text-uppercase fw-semibold">Application Ref.</small>
+                <div class="fw-bold text-dark fs-6">{{ application.application_id|default:application.pk }}</div>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <small class="text-muted d-block text-uppercase fw-semibold">Issue Date</small>
+                <div class="fw-bold text-dark fs-6">{{ issue_date|date:"d M Y" }}</div>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <small class="text-muted d-block text-uppercase fw-semibold">Valid Until</small>
+                <div class="fw-bold text-success fs-6">{{ valid_until|date:"d M Y" }} ({{ validity_years }} Year{{ validity_years|pluralize }})</div>
+            </div>
+        </div>
+
+        <!-- Certification Statement -->
+        <div class="mb-4">
+            <h5 class="fw-bold text-dark mb-2">TO WHOMSOEVER IT MAY CONCERN</h5>
+            <p class="text-dark leading-relaxed" style="text-align: justify; line-height: 1.8;">
+                This is to certify that the building premises named <strong>{{ application.building_name }}</strong>, located at
+                <strong>{{ application.building_address }}, {{ application.city }}, {{ application.state }} – {{ application.pin_code }}</strong>,
+                owned/represented by <strong>{{ application.full_name|default:application.applicant.get_full_name|default:application.applicant.username }}</strong>,
+                has been duly inspected by the designated Fire Officer of the Fire & Emergency Services Department.
+                The fire prevention, detection, evacuation, and life safety measures installed at the said premises have been verified
+                to comply with the standards set forth under the <em>National Building Code (NBC)</em> and applicable Fire Safety Regulations.
+            </p>
+        </div>
+
+        <!-- Premises Details Table -->
+        <div class="mb-4">
+            <h6 class="fw-bold text-dark border-bottom pb-2 mb-3">Premises & Application Specifications</h6>
+            <div class="table-responsive">
+                <table class="table table-bordered table-sm align-middle mb-0">
+                    <tbody>
+                        <tr>
+                            <th class="bg-light w-25">Building Name</th>
+                            <td class="w-25 fw-semibold">{{ application.building_name }}</td>
+                            <th class="bg-light w-25">Occupancy Type</th>
+                            <td class="w-25 fw-semibold">{{ application.get_occupancy_type_display }}</td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light">Building Structure</th>
+                            <td>{{ application.get_building_type_display }}</td>
+                            <th class="bg-light">Number of Floors</th>
+                            <td>{{ application.num_floors }} Floor{{ application.num_floors|pluralize }}</td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light">Total Built-Up Area</th>
+                            <td>{{ application.builtup_area }} sq. meters</td>
+                            <th class="bg-light">Year of Construction</th>
+                            <td>{{ application.year_construction }}</td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light">Premises Address</th>
+                            <td colspan="3">{{ application.building_address }}, {{ application.city }}, {{ application.state }} – {{ application.pin_code }}</td>
+                        </tr>
+                        <tr>
+                            <th class="bg-light">Applicant Name</th>
+                            <td>{{ application.full_name }}</td>
+                            <th class="bg-light">Contact Number</th>
+                            <td>{{ application.mobile_number }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Conditions & Compliance -->
+        <div class="mb-4 p-3 bg-light rounded border">
+            <h6 class="fw-bold text-dark mb-2"><i class="bi bi-shield-exclamation text-danger me-1"></i>Mandatory Terms & Conditions</h6>
+            <ol class="small text-muted mb-0 ps-3" style="line-height: 1.6;">
+                <li>All fire fighting installations, risers, yard hydrants, alarms, and emergency exit signs must be maintained in active, functional condition at all times.</li>
+                <li>Emergency exits, stairwells, and evacuation corridors must remain permanently unlocked and unobstructed.</li>
+                <li>The building management and occupants must conduct mock fire evacuation drills at least once every six months.</li>
+                <li>Any structural alteration, addition, or change of occupancy without prior written approval from the Fire Authority renders this certificate void.</li>
+                <li>Application for certificate renewal must be initiated at least 30 days prior to the expiration date: <strong>{{ valid_until|date:"d M Y" }}</strong>.</li>
+            </ol>
+        </div>
+
+        <!-- Signature Section -->
+        <div class="row pt-4 mt-2">
+            <div class="col-6">
+                <div class="small text-muted mb-1">Digital Authentication:</div>
+                <div class="p-2 border rounded bg-light d-inline-block small text-muted font-monospace">
+                    CERT-HASH: {{ certificate_number }}-{{ application.pk|stringformat:"06d" }}<br>
+                    ISSUED-BY: FIRE-DEPT-AUTOMATED-SYS
+                </div>
+            </div>
+            <div class="col-6 text-end">
+                <div class="fw-bold text-dark fs-6">Chief Fire Officer / Competent Authority</div>
+                <div class="small text-muted">Fire & Emergency Services Headquarters</div>
+                <div class="badge bg-success-subtle text-success border border-success-subtle mt-1 px-3 py-1">
+                    <i class="bi bi-patch-check-fill me-1"></i>Digitally Signed & Issued
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+@media print {
+    body {
+        background-color: #fff !important;
+    }
+    .d-print-none, header, footer, nav, .navbar {
+        display: none !important;
+    }
+    .card {
+        box-shadow: none !important;
+        border: 2px solid #000 !important;
+    }
+}
+</style>
+{% endblock %}

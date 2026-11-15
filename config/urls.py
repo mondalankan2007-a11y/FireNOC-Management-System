@@ -7,7 +7,11 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from .views import home
-from applicants.views import register, login_view, logout_view, my_applications, application_details, document_upload, my_documents, inspection_details, application_timeline
+from applicants.views import (
+    register, login_view, logout_view, my_applications, application_details,
+    document_upload, my_documents, inspection_details, application_timeline,
+    my_deficiencies, my_nocs, profile
+)
 
 urlpatterns = [
     # Admin Interface
@@ -43,6 +47,11 @@ urlpatterns = [
 
     # Top-level Timeline route: /applications/<id>/timeline/
     path('applications/<int:application_id>/timeline/', application_timeline, name='application_timeline_root'),
+
+    # Top-level Deficiencies, NOCs, Profile routes
+    path('deficiencies/', my_deficiencies, name='my_deficiencies_root'),
+    path('my-nocs/', my_nocs, name='my_nocs_root'),
+    path('profile/', profile, name='profile_root'),
 ]
 
 # Serve media files in development environment

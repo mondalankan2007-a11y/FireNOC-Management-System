@@ -1,0 +1,296 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Application Deficiencies – {{ application.application_id }} | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:dashboard' %}">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:my_applications' %}">My Applications</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:application_details' application.pk %}">{{ application.application_id|default:application.pk }}</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Deficiencies</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Sidebar Navigation -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <div class="dashboard-user-profile text-center">
+                    <div class="dashboard-user-avatar mx-auto mb-2">
+                        <i class="bi bi-person-fill"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">
+                        {{ user.first_name|default:user.username }} {{ user.last_name|default:'' }}
+                    </h5>
+                    <small class="text-white-50 d-block text-truncate px-2">{{ user.email }}</small>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle mt-2 px-2 py-1 small">
+                        <i class="bi bi-patch-check-fill me-1"></i>Verified Applicant
+                    </span>
+                </div>
+
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <a class="nav-link" href="{% url 'applicants:dashboard' %}">
+                            <i class="bi bi-grid-1x2-fill me-2"></i>Dashboard
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:application_new' %}">
+                            <i class="bi bi-file-earmark-plus me-2 text-primary"></i>New Application
+                        </a>
+                        <a class="nav-link active" href="{% url 'applicants:my_applications' %}">
+                            <i class="bi bi-folder2 me-2"></i>My Applications
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:my_documents' %}">
+                            <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:inspection_details' application.pk %}">
+                            <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:application_timeline' application.pk %}">
+                            <i class="bi bi-diagram-3 me-2"></i>Status Timeline
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:my_nocs' %}">
+                            <i class="bi bi-award me-2"></i>My NOCs
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:profile' %}">
+                            <i class="bi bi-person-gear me-2"></i>Profile
+                        </a>
+
+                        <hr class="my-2 border-secondary-subtle">
+
+                        <form method="post" action="{% url 'logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Quick Navigation to Application -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <h6 class="fw-bold mb-2 text-dark"><i class="bi bi-link-45deg me-1"></i>Quick Links</h6>
+                <div class="d-grid gap-2">
+                    <a href="{% url 'applicants:application_details' application.pk %}" class="btn btn-sm btn-outline-secondary text-start">
+                        <i class="bi bi-arrow-left me-1"></i>Back to Application Details
+                    </a>
+                    <a href="{% url 'applicants:application_timeline' application.pk %}" class="btn btn-sm btn-outline-primary text-start">
+                        <i class="bi bi-diagram-3 me-1"></i>View Progress Timeline
+                    </a>
+                    <a href="{% url 'applicants:inspection_details' application.pk %}" class="btn btn-sm btn-outline-info text-start">
+                        <i class="bi bi-clipboard-check me-1"></i>Inspection Schedule & Notes
+                    </a>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="col-lg-9 col-md-8">
+            <!-- Application Summary Card -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div>
+                            <span class="badge bg-secondary mb-1">{{ application.get_application_type_display }}</span>
+                            <h2 class="h4 fw-bold text-dark mb-1">
+                                {{ application.building_name }}
+                            </h2>
+                            <p class="text-muted mb-0 small">
+                                <span class="fw-semibold text-dark">Ref:</span> {{ application.application_id|default:application.pk }} |
+                                <span class="fw-semibold text-dark">Occupancy:</span> {{ application.get_occupancy_type_display }} |
+                                <span class="fw-semibold text-dark">Status:</span> {{ application.get_status_display }}
+                            </p>
+                        </div>
+                        <a href="{% url 'applicants:application_details' application.pk %}" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-1"></i>Back to Details
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Messages Alert -->
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show shadow-sm" role="alert">
+                        <i class="bi bi-info-circle-fill me-2"></i>{{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <!-- Deficiencies Section -->
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold mb-0 text-dark">
+                    <i class="bi bi-exclamation-triangle text-warning me-2"></i>Identified Fire Safety Deficiencies
+                </h5>
+                <span class="badge bg-light text-dark border">
+                    {{ deficiencies|length }} Deficiency{{ deficiencies|length|pluralize:"ies" }}
+                </span>
+            </div>
+
+            {% if deficiencies %}
+                {% for def in deficiencies %}
+                    <div class="card border-0 shadow-sm mb-4" id="def-{{ def.pk }}">
+                        <div class="card-header bg-white py-3 border-bottom d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-dark">DEF-{{ def.pk }}</span>
+                                <h6 class="fw-bold mb-0 text-dark">{{ def.title }}</h6>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                {% if def.severity == 'CRITICAL' %}
+                                    <span class="badge bg-danger">Critical</span>
+                                {% elif def.severity == 'MAJOR' %}
+                                    <span class="badge bg-warning text-dark">Major</span>
+                                {% else %}
+                                    <span class="badge bg-info text-dark">Minor</span>
+                                {% endif %}
+
+                                {% if def.status == 'OPEN' %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                        <i class="bi bi-exclamation-circle me-1"></i>Open
+                                    </span>
+                                {% elif def.status == 'SUBMITTED_FOR_VERIFICATION' %}
+                                    <span class="badge bg-warning-subtle text-warning border border-warning-subtle">
+                                        <i class="bi bi-hourglass-split me-1"></i>Submitted for Verification
+                                    </span>
+                                {% elif def.status == 'VERIFIED' %}
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                        <i class="bi bi-check2-circle me-1"></i>Verified
+                                    </span>
+                                {% elif def.status == 'REJECTED' %}
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                        <i class="bi bi-x-circle me-1"></i>Rejected
+                                    </span>
+                                {% elif def.status == 'CLOSED' %}
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">
+                                        <i class="bi bi-lock me-1"></i>Closed
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="card-body p-4">
+                            <!-- Deficiency Description -->
+                            <div class="mb-3">
+                                <label class="fw-semibold text-muted small text-uppercase d-block mb-1">Observation / Deficiency Details</label>
+                                <div class="p-3 bg-light rounded text-dark border">
+                                    {{ def.description|linebreaksbr }}
+                                </div>
+                            </div>
+
+                            <!-- Officer Remarks -->
+                            {% if def.officer_remarks %}
+                                <div class="mb-3">
+                                    <label class="fw-semibold text-muted small text-uppercase d-block mb-1">Officer Rectification Instructions</label>
+                                    <div class="p-3 bg-warning-subtle border border-warning-subtle rounded text-dark">
+                                        <i class="bi bi-person-badge me-1 text-warning-emphasis"></i>{{ def.officer_remarks|linebreaksbr }}
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            <!-- Previous Rectification Submissions -->
+                            {% if def.rectifications.all %}
+                                <div class="mb-4">
+                                    <label class="fw-semibold text-muted small text-uppercase d-block mb-2">Previous Rectification Submissions</label>
+                                    <div class="list-group">
+                                        {% for rec in def.rectifications.all %}
+                                            <div class="list-group-item list-group-item-action p-3">
+                                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                                    <span class="small fw-semibold text-dark">
+                                                        <i class="bi bi-clock-history me-1"></i>Submitted on {{ rec.submitted_at|date:"d M Y, H:i" }}
+                                                    </span>
+                                                    <span class="badge {% if rec.status == 'ACCEPTED' %}bg-success{% elif rec.status == 'REJECTED' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                                                        {{ rec.get_status_display }}
+                                                    </span>
+                                                </div>
+                                                <p class="small text-muted mb-2">{{ rec.description|linebreaksbr }}</p>
+
+                                                {% if rec.evidence_file %}
+                                                    <div class="small mb-1">
+                                                        <a href="{{ rec.evidence_file.url }}" target="_blank" class="text-decoration-none">
+                                                            <i class="bi bi-paperclip me-1"></i>View Uploaded Evidence
+                                                        </a>
+                                                    </div>
+                                                {% endif %}
+
+                                                {% if rec.review_remarks %}
+                                                    <div class="small p-2 bg-light rounded text-muted mt-2 border">
+                                                        <strong>Officer Feedback:</strong> {{ rec.review_remarks }}
+                                                    </div>
+                                                {% endif %}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            {% endif %}
+
+                            <!-- Submit Rectification Form (if OPEN or REJECTED) -->
+                            {% if def.status == 'OPEN' or def.status == 'REJECTED' %}
+                                <div class="border rounded p-3 bg-light">
+                                    <h6 class="fw-bold text-dark mb-2">
+                                        <i class="bi bi-upload text-danger me-1"></i>Submit Rectification & Evidence
+                                    </h6>
+                                    <p class="small text-muted mb-3">
+                                        Provide details of the corrective action taken to address this deficiency and upload supporting photographic or documentary evidence.
+                                    </p>
+
+                                    <form method="post" action="{% url 'applicants:deficiency_rectify_submit' def.pk %}" enctype="multipart/form-data">
+                                        {% csrf_token %}
+                                        <div class="mb-3">
+                                            <label class="form-label small fw-semibold">Rectification Description <span class="text-danger">*</span></label>
+                                            <textarea name="description" rows="3" class="form-control" required
+                                                      placeholder="Describe the remedial action taken, equipment installed/serviced, or procedures updated..."></textarea>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label small fw-semibold">Supporting Evidence File (Optional)</label>
+                                            <input type="file" name="evidence_file" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                                            <small class="text-muted d-block mt-1">Accepted formats: PDF, JPG, JPEG, PNG (Max 5 MB)</small>
+                                        </div>
+
+                                        <div class="text-end">
+                                            <button type="submit" class="btn btn-danger btn-sm px-4 shadow-sm">
+                                                <i class="bi bi-send-check me-1"></i>Submit for Verification
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            {% else %}
+                                <div class="alert alert-light border mb-0 small text-muted">
+                                    <i class="bi bi-info-circle me-1"></i>
+                                    {% if def.status == 'SUBMITTED_FOR_VERIFICATION' %}
+                                        Rectification submitted and awaiting re-inspection or document verification by the Fire Officer.
+                                    {% elif def.status == 'VERIFIED' %}
+                                        This deficiency has been verified by the Fire Officer.
+                                    {% elif def.status == 'CLOSED' %}
+                                        This deficiency has been formally closed.
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <!-- Empty State -->
+                <div class="card border-0 shadow-sm text-center py-5">
+                    <div class="card-body">
+                        <i class="bi bi-patch-check-fill text-success display-4 mb-3 d-block"></i>
+                        <h5 class="fw-bold text-dark">No Deficiencies Recorded</h5>
+                        <p class="text-muted small mb-3">
+                            There are currently no fire safety deficiencies recorded for this application.
+                        </p>
+                        <a href="{% url 'applicants:application_details' application.pk %}" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-1"></i>Return to Application Details
+                        </a>
+                    </div>
+                </div>
+            {% endif %}
+        </main>
+    </div>
+</div>
+{% endblock %}

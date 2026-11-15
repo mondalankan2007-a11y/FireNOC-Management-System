@@ -74,13 +74,13 @@
                         <a class="nav-link" href="{% url 'applicants:application_timeline' application.id %}">
                             <i class="bi bi-clock-history me-2 text-warning"></i>Status Timeline
                         </a>
-                        <a class="nav-link" href="#corrections" data-bs-toggle="tooltip" title="Outstanding deficiency rectification notices">
-                            <i class="bi bi-exclamation-triangle me-2"></i>Corrections
+                        <a class="nav-link" href="{% url 'applicants:application_deficiencies' application.pk %}">
+                            <i class="bi bi-exclamation-triangle me-2"></i>Corrections / Deficiencies
                         </a>
-                        <a class="nav-link" href="#my-nocs" data-bs-toggle="tooltip" title="Issued digital Fire NOC Certificates">
+                        <a class="nav-link" href="{% url 'applicants:my_nocs' %}">
                             <i class="bi bi-award me-2"></i>My NOCs
                         </a>
-                        <a class="nav-link" href="#profile" data-bs-toggle="tooltip" title="Manage personal and contact details">
+                        <a class="nav-link" href="{% url 'applicants:profile' %}">
                             <i class="bi bi-person-gear me-2"></i>Profile
                         </a>
 
@@ -192,16 +192,26 @@
                 </div>
             </div>
 
-            {% if application.status == 'APPROVED' %}
+            {% if application.status == 'APPROVED' or application.status == 'NOC_ISSUED' %}
                 <div class="card border-0 shadow-sm mb-4 bg-success-subtle border-start border-success border-4">
                     <div class="card-body p-4">
-                        <div class="d-flex align-items-center">
-                            <i class="bi bi-patch-check-fill text-success fs-2 me-3"></i>
-                            <div>
-                                <h5 class="fw-bold text-success mb-1">Fire NOC Certificate Approved & Issued</h5>
-                                <p class="text-success-emphasis mb-0 small">
-                                    Official Fire Safety Clearance has been granted for <strong>{{ application.building_name }}</strong> under Reference ID <strong>{{ application.application_id }}</strong>. All fire safety and evacuation prerequisites have been validated in full compliance with municipal fire safety standards.
-                                </p>
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-patch-check-fill text-success fs-2 me-3"></i>
+                                <div>
+                                    <h5 class="fw-bold text-success mb-1">Fire NOC Certificate Approved & Issued</h5>
+                                    <p class="text-success-emphasis mb-0 small">
+                                        Official Fire Safety Clearance has been granted for <strong>{{ application.building_name }}</strong> under Reference ID <strong>{{ application.application_id }}</strong>. All fire safety and evacuation prerequisites have been validated in full compliance with municipal fire safety standards.
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <a href="{% url 'applicants:noc_certificate' application.id %}" class="btn btn-success btn-sm px-3 shadow-sm">
+                                    <i class="bi bi-award me-1"></i>View Certificate
+                                </a>
+                                <a href="{% url 'applicants:noc_certificate_pdf' application.id %}" class="btn btn-outline-success btn-sm px-3 shadow-sm">
+                                    <i class="bi bi-download me-1"></i>Download PDF
+                                </a>
                             </div>
                         </div>
                     </div>
@@ -489,7 +499,15 @@
                     <i class="bi bi-arrow-left me-1"></i>Back to My Applications
                 </a>
                 <div class="d-flex gap-2 flex-wrap">
-                    <a href="{% url 'applicants:application_timeline' application.id %}" class="btn btn-outline-warning text-dark fw-semibold">
+                    {% if application.status == 'APPROVED' or application.status == 'NOC_ISSUED' %}
+                        <a href="{% url 'applicants:noc_certificate' application.id %}" class="btn btn-success fw-semibold">
+                            <i class="bi bi-award me-1"></i>View Fire NOC
+                        </a>
+                    {% endif %}
+                    <a href="{% url 'applicants:application_deficiencies' application.id %}" class="btn btn-outline-warning text-dark fw-semibold">
+                        <i class="bi bi-exclamation-triangle me-1"></i>Deficiencies
+                    </a>
+                    <a href="{% url 'applicants:application_timeline' application.id %}" class="btn btn-outline-primary">
                         <i class="bi bi-clock-history me-1"></i>Status Timeline
                     </a>
                     <a href="{% url 'applicants:inspection_details' application.id %}" class="btn btn-outline-info">

@@ -475,7 +475,7 @@ class ConstraintDriftTests(TestCase):
                 self.assertIsNotNone(
                     constraint, f'{constraint_name} is missing from {model_name}.Meta')
 
-                condition = getattr(constraint, 'check', None) or constraint.condition
+                condition = constraint.condition if getattr(constraint, 'condition', None) is not None else getattr(constraint, 'check', None)
                 lookup, allowed = condition.children[0]
                 self.assertTrue(lookup.endswith('__in'), lookup)
                 self.assertEqual(

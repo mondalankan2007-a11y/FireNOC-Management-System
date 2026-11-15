@@ -30,4 +30,17 @@ urlpatterns = [
 
     # Application Status Timeline
     path('applications/<int:application_id>/timeline/', views.application_timeline, name='application_timeline'),
+
+    # Deficiency Management
+    path('deficiencies/', views.my_deficiencies, name='my_deficiencies'),
+    path('applications/<int:application_id>/deficiencies/', views.application_deficiencies, name='application_deficiencies'),
+    path('deficiencies/<int:deficiency_id>/rectify/', views.deficiency_rectify_submit, name='deficiency_rectify_submit'),
+
+    # NOC Management
+    path('my-nocs/', views.my_nocs, name='my_nocs'),
+    path('applications/<int:application_id>/certificate/', views.noc_certificate, name='noc_certificate'),
+    path('applications/<int:application_id>/certificate/download/', views.noc_certificate_pdf, name='noc_certificate_pdf'),
+
+    # Profile Management
+    path('profile/', views.profile, name='profile'),
 ]

@@ -13,6 +13,7 @@ from django.core.paginator import Paginator
 from django.core.validators import validate_email
 from django.db import transaction
 from django.db.models import Q
+from django.http import HttpResponse, Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils.http import url_has_allowed_host_and_scheme
 from .models import Application, ApplicationDocument
@@ -24,6 +25,7 @@ from officers.models import (
     Deficiency,
     DeficiencyRectification,
 )
+from adminpanel.models import ApplicantProfile
 
 
 def build_application_timeline(application):
@@ -416,6 +418,9 @@ def get_applicant_dashboard_data(user):
     stats = {
         'total_applications': 0,
         'pending_applications': 0,
+        'under_review_applications': 0,
+        'inspections_scheduled': 0,
+        'deficiencies_attention': 0,
         'approved_applications': 0,
         'nocs_issued': 0,
     }
@@ -473,6 +478,32 @@ def get_applicant_dashboard_data(user):
                 'pending', 'submitted', 'under_review', 'under_inspection'
             ]
         ).count()
+
+        # 2b. Applications Under Review count
+        stats['under_review_applications'] = user_applications.filter(
+            status__in=[
+                'UNDER_REVIEW', 'DOCUMENTS_VERIFIED',
+                'under_review', 'documents_verified'
+            ]
+        ).count()
+
+        # 2c. Inspections Scheduled count
+        try:
+            stats['inspections_scheduled'] = Inspection.objects.filter(
+                application__in=user_applications,
+                status__in=[Inspection.STATUS_SCHEDULED, Inspection.STATUS_IN_PROGRESS]
+            ).count()
+        except Exception:
+            stats['inspections_scheduled'] = user_applications.filter(status='UNDER_INSPECTION').count()
+
+        # 2d. Deficiencies Requiring Attention count
+        try:
+            stats['deficiencies_attention'] = Deficiency.objects.filter(
+                application__in=user_applications,
+                status__in=[Deficiency.STATUS_OPEN, Deficiency.STATUS_REJECTED]
+            ).count()
+        except Exception:
+            stats['deficiencies_attention'] = user_applications.filter(status='DEFICIENT').count()
 
         # 3. Approved Applications count
         stats['approved_applications'] = user_applications.filter(
@@ -1381,3 +1412,355 @@ def inspection_details(request, application_id):
         'RESULT_REQUIRES_RECTIFICATION': InspectionReport.RESULT_REQUIRES_RECTIFICATION,
     }
     return render(request, 'applicants/inspection_details.html', context)
+
+
+def generate_noc_pdf_bytes(application):
+    """
+    Pure Python standard PDF 1.4 binary generator for Fire NOC Certificate.
+    Produces a valid, downloadable PDF without requiring external C libraries or packages.
+    """
+    cert_no = application.application_id or f"NOC-{application.pk:04d}"
+    issue_date = application.updated_at.strftime("%d-%b-%Y")
+    valid_years = 3 if application.occupancy_type == 'RESIDENTIAL' else 1
+    try:
+        valid_until = (application.updated_at + datetime.timedelta(days=365 * valid_years)).strftime("%d-%b-%Y")
+    except Exception:
+        valid_until = "N/A"
+
+    applicant_name = (
+        application.full_name
+        or application.applicant.get_full_name()
+        or application.applicant.username
+    )
+    building_name = application.building_name
+    occupancy = application.get_occupancy_type_display()
+    building_type = application.get_building_type_display()
+    address = f"{application.building_address}, {application.city}, {application.state} - {application.pin_code}"
+
+    lines = [
+        (130, 780, 18, "GOVERNMENT FIRE & EMERGENCY SERVICES"),
+        (185, 758, 14, "FIRE SAFETY CERTIFICATE / NOC"),
+        (50, 740, 10, "-" * 95),
+        (50, 715, 11, f"Certificate No : {cert_no}"),
+        (350, 715, 11, f"Issue Date   : {issue_date}"),
+        (50, 695, 11, f"Application Ref: {cert_no}"),
+        (350, 695, 11, f"Valid Until  : {valid_until}"),
+        (50, 675, 10, "-" * 95),
+        (50, 645, 12, "TO WHOM IT MAY CONCERN"),
+        (50, 620, 10, "This is to certify that the premises described below has been inspected by the Fire"),
+        (50, 605, 10, "and Emergency Services and found to have complied with the fire prevention and safety"),
+        (50, 590, 10, "measures as stipulated in the National Building Code and relevant Fire Safety Regulations."),
+        (50, 555, 11, f"Applicant Name  : {applicant_name}"),
+        (50, 535, 11, f"Building Name   : {building_name}"),
+        (50, 515, 11, f"Occupancy Type  : {occupancy} ({building_type})"),
+        (50, 495, 11, f"Floors / Area   : {application.num_floors} Floors / {application.builtup_area} sq.m"),
+        (50, 475, 11, f"Premises Address: {address[:75]}"),
+        (50, 425, 10, "Standard Terms and Conditions:"),
+        (50, 405, 9, "1. All fire fighting installations shall be maintained in perfect working condition at all times."),
+        (50, 390, 9, "2. Means of escape and fire exits must remain unblocked and clear of obstructions permanently."),
+        (50, 375, 9, "3. Staff and occupants should be trained periodically in fire safety drills and evacuation."),
+        (50, 360, 9, "4. Any unauthorized alterations to the structure without prior approval shall invalidate this NOC."),
+        (50, 345, 9, "5. Application for renewal must be submitted at least 30 days prior to the validity expiry date."),
+        (360, 260, 10, "Issued by Order of:"),
+        (360, 245, 10, "Competent Fire Safety Authority"),
+        (360, 230, 9, "Fire & Emergency Services Department"),
+        (50, 150, 8, f"Document generated via FireNOC Management Portal | Verification Hash: {abs(hash(cert_no)) % 100000000:08d}"),
+    ]
+
+    stream_parts = ["BT"]
+    for x, y, size, text in lines:
+        safe_text = str(text).replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+        stream_parts.append(f"/F1 {size} Tf")
+        stream_parts.append(f"1 0 0 1 {x} {y} Tm")
+        stream_parts.append(f"({safe_text}) Tj")
+    stream_parts.append("ET")
+    stream_content = "\n".join(stream_parts).encode("latin-1", "replace")
+    stream_len = len(stream_content)
+
+    objects = []
+    # 1: Catalog
+    objects.append(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n")
+    # 2: Pages
+    objects.append(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n")
+    # 3: Page
+    objects.append(b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n")
+    # 4: Stream
+    objects.append(f"4 0 obj\n<< /Length {stream_len} >>\nstream\n".encode("ascii") + stream_content + b"\nendstream\nendobj\n")
+    # 5: Font
+    objects.append(b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n")
+
+    pdf = b"%PDF-1.4\n"
+    offsets = []
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf += obj
+
+    xref_offset = len(pdf)
+    pdf += b"xref\n0 6\n0000000000 65535 f \n"
+    for off in offsets:
+        pdf += f"{off:010d} 00000 n \n".encode("ascii")
+    pdf += f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+    return pdf
+
+
+@login_required(login_url='login')
+def my_deficiencies(request):
+    """
+    Applicant Deficiencies listing page.
+    Displays all fire safety deficiencies raised by Fire Officers across all
+    applications owned by the authenticated applicant.
+    Enforces applicant ownership isolation.
+    """
+    deficiencies_qs = Deficiency.objects.filter(
+        application__applicant=request.user
+    ).select_related('application', 'inspection').prefetch_related('rectifications').order_by('-created_at')
+
+    # Status filter
+    status_filter = request.GET.get('status', '').strip()
+    if status_filter:
+        deficiencies_qs = deficiencies_qs.filter(status=status_filter)
+
+    # Severity filter
+    severity_filter = request.GET.get('severity', '').strip()
+    if severity_filter:
+        deficiencies_qs = deficiencies_qs.filter(severity=severity_filter)
+
+    # Search filter
+    q = request.GET.get('q', '').strip()
+    if q:
+        deficiencies_qs = deficiencies_qs.filter(
+            Q(title__icontains=q) |
+            Q(description__icontains=q) |
+            Q(application__application_id__icontains=q) |
+            Q(application__building_name__icontains=q)
+        )
+
+    paginator = Paginator(deficiencies_qs, 10)
+    page_obj = paginator.get_page(request.GET.get('page'))
+
+    query_params = request.GET.copy()
+    query_params.pop('page', None)
+    filter_query_string = query_params.urlencode()
+
+    context = {
+        'page_obj': page_obj,
+        'deficiencies': page_obj.object_list,
+        'total_count': paginator.count,
+        'status_filter': status_filter,
+        'severity_filter': severity_filter,
+        'q': q,
+        'filter_query_string': filter_query_string,
+        'STATUS_OPEN': Deficiency.STATUS_OPEN,
+        'STATUS_SUBMITTED': Deficiency.STATUS_SUBMITTED,
+        'STATUS_VERIFIED': Deficiency.STATUS_VERIFIED,
+        'STATUS_REJECTED': Deficiency.STATUS_REJECTED,
+        'STATUS_CLOSED': Deficiency.STATUS_CLOSED,
+    }
+    return render(request, 'applicants/my_deficiencies.html', context)
+
+
+@login_required(login_url='login')
+def application_deficiencies(request, application_id):
+    """
+    View deficiencies raised for a specific application owned by the logged-in applicant.
+    Allows reviewing deficiency details and submitting rectification evidence.
+    """
+    application = get_object_or_404(
+        Application.objects.filter(applicant=request.user),
+        pk=application_id
+    )
+    deficiencies = application.deficiencies.select_related('inspection').prefetch_related('rectifications').order_by('-created_at')
+
+    context = {
+        'application': application,
+        'deficiencies': deficiencies,
+        'STATUS_OPEN': Deficiency.STATUS_OPEN,
+        'STATUS_SUBMITTED': Deficiency.STATUS_SUBMITTED,
+        'STATUS_VERIFIED': Deficiency.STATUS_VERIFIED,
+        'STATUS_REJECTED': Deficiency.STATUS_REJECTED,
+        'STATUS_CLOSED': Deficiency.STATUS_CLOSED,
+    }
+    return render(request, 'applicants/application_deficiencies.html', context)
+
+
+@login_required(login_url='login')
+def deficiency_rectify_submit(request, deficiency_id):
+    """
+    Submit rectification details and evidence file for an outstanding deficiency.
+    Strictly verifies ownership: deficiency must belong to one of request.user's applications.
+    """
+    deficiency = get_object_or_404(
+        Deficiency.objects.filter(application__applicant=request.user),
+        pk=deficiency_id
+    )
+
+    if request.method != 'POST':
+        return redirect('applicants:application_deficiencies', application_id=deficiency.application_id)
+
+    description = request.POST.get('description', '').strip()
+    evidence_file = request.FILES.get('evidence_file')
+
+    if not description:
+        messages.error(request, 'Please provide a detailed description of the corrective action taken.')
+        return redirect('applicants:application_deficiencies', application_id=deficiency.application_id)
+
+    if len(description) < 10:
+        messages.error(request, 'Rectification description must be at least 10 characters long.')
+        return redirect('applicants:application_deficiencies', application_id=deficiency.application_id)
+
+    if evidence_file:
+        allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']
+        ext = os.path.splitext(evidence_file.name)[1].lower()
+        if ext not in allowed_extensions:
+            messages.error(request, 'Invalid evidence file format. Only PDF, JPG, JPEG, and PNG files are accepted.')
+            return redirect('applicants:application_deficiencies', application_id=deficiency.application_id)
+
+        max_size = 5 * 1024 * 1024  # 5MB
+        if evidence_file.size > max_size:
+            messages.error(request, 'Evidence file size exceeds the 5 MB limit.')
+            return redirect('applicants:application_deficiencies', application_id=deficiency.application_id)
+
+    with transaction.atomic():
+        DeficiencyRectification.objects.create(
+            deficiency=deficiency,
+            submitted_by=request.user,
+            description=description,
+            evidence_file=evidence_file,
+            status=DeficiencyRectification.STATUS_SUBMITTED,
+        )
+        if deficiency.status in [Deficiency.STATUS_OPEN, Deficiency.STATUS_REJECTED]:
+            deficiency.status = Deficiency.STATUS_SUBMITTED
+            deficiency.save(update_fields=['status', 'updated_at'])
+
+    messages.success(request, f'Rectification submitted successfully for Deficiency DEF-{deficiency.pk}. A Fire Officer will review your submission.')
+    return redirect('applicants:application_deficiencies', application_id=deficiency.application_id)
+
+
+@login_required(login_url='login')
+def my_nocs(request):
+    """
+    Applicant NOC Certificates listing page.
+    Displays all issued Fire NOC certificates for approved applications
+    belonging to the authenticated applicant.
+    """
+    applications = Application.objects.filter(
+        applicant=request.user,
+        status__in=['APPROVED', 'NOC_ISSUED']
+    ).order_by('-updated_at')
+
+    noc_list = []
+    for app in applications:
+        valid_years = 3 if app.occupancy_type == 'RESIDENTIAL' else 1
+        valid_until = app.updated_at + datetime.timedelta(days=365 * valid_years)
+        noc_list.append({
+            'application': app,
+            'certificate_number': app.application_id or f"NOC-{app.pk:04d}",
+            'issue_date': app.updated_at.date(),
+            'valid_until': valid_until.date(),
+            'validity_years': valid_years,
+        })
+
+    context = {
+        'noc_list': noc_list,
+        'total_nocs': len(noc_list),
+    }
+    return render(request, 'applicants/my_nocs.html', context)
+
+
+@login_required(login_url='login')
+def noc_certificate(request, application_id):
+    """
+    View digital Fire NOC certificate for an approved application.
+    Protected by applicant ownership check and approved status check.
+    """
+    application = get_object_or_404(
+        Application.objects.filter(
+            applicant=request.user,
+            status__in=['APPROVED', 'NOC_ISSUED']
+        ),
+        pk=application_id
+    )
+
+    valid_years = 3 if application.occupancy_type == 'RESIDENTIAL' else 1
+    valid_until = application.updated_at + datetime.timedelta(days=365 * valid_years)
+
+    context = {
+        'application': application,
+        'certificate_number': application.application_id or f"NOC-{application.pk:04d}",
+        'issue_date': application.updated_at.date(),
+        'valid_until': valid_until.date(),
+        'validity_years': valid_years,
+    }
+    return render(request, 'applicants/noc_certificate.html', context)
+
+
+@login_required(login_url='login')
+def noc_certificate_pdf(request, application_id):
+    """
+    Download official Fire NOC certificate as a PDF file.
+    Protected by applicant ownership check and approved status check.
+    """
+    application = get_object_or_404(
+        Application.objects.filter(
+            applicant=request.user,
+            status__in=['APPROVED', 'NOC_ISSUED']
+        ),
+        pk=application_id
+    )
+
+    pdf_bytes = generate_noc_pdf_bytes(application)
+    filename = f"Fire_NOC_{application.application_id or application.pk}.pdf"
+
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required(login_url='login')
+def profile(request):
+    """
+    Applicant profile view and update.
+    Allows viewing and updating permitted personal information:
+    first_name, last_name, mobile_number.
+    Email address and administrative credentials/roles cannot be modified.
+    """
+    profile_obj, _ = ApplicantProfile.objects.get_or_create(
+        user=request.user,
+        defaults={'full_name': request.user.get_full_name() or request.user.username}
+    )
+
+    if request.method == 'POST':
+        first_name = request.POST.get('first_name', '').strip()
+        last_name = request.POST.get('last_name', '').strip()
+        mobile_number = request.POST.get('mobile_number', '').strip()
+
+        errors = []
+        if mobile_number:
+            clean_mobile = re.sub(r'[\s\-\+]', '', mobile_number)
+            if not clean_mobile.isdigit() or len(clean_mobile) < 7 or len(clean_mobile) > 15:
+                errors.append('Please enter a valid mobile phone number (7-15 digits).')
+
+        if errors:
+            for error in errors:
+                messages.error(request, error)
+        else:
+            request.user.first_name = first_name
+            request.user.last_name = last_name
+            request.user.save(update_fields=['first_name', 'last_name'])
+
+            profile_obj.full_name = f"{first_name} {last_name}".strip() or request.user.username
+            profile_obj.mobile_number = mobile_number
+            profile_obj.save()
+
+            messages.success(request, 'Your profile has been updated successfully.')
+            return redirect('applicants:profile')
+
+    user_applications_count = Application.objects.filter(applicant=request.user).count()
+
+    context = {
+        'profile': profile_obj,
+        'user': request.user,
+        'user_applications_count': user_applications_count,
+    }
+    return render(request, 'applicants/profile.html', context)
+

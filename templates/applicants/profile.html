@@ -1,0 +1,217 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Applicant Profile | FireNOC Management System{% endblock %}
+
+{% block content %}
+<div class="container-fluid px-lg-4 py-2">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{% url 'home' %}">Home</a></li>
+            <li class="breadcrumb-item"><a href="{% url 'applicants:dashboard' %}">Dashboard</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Profile</li>
+        </ol>
+    </nav>
+
+    <div class="row g-4">
+        <!-- Sidebar Navigation -->
+        <aside class="col-lg-3 col-md-4">
+            <div class="dashboard-sidebar-card shadow-sm mb-4">
+                <div class="dashboard-user-profile text-center">
+                    <div class="dashboard-user-avatar mx-auto mb-2">
+                        <i class="bi bi-person-fill"></i>
+                    </div>
+                    <h5 class="fw-bold mb-0 text-white">
+                        {{ user.first_name|default:user.username }} {{ user.last_name|default:'' }}
+                    </h5>
+                    <small class="text-white-50 d-block text-truncate px-2">{{ user.email }}</small>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle mt-2 px-2 py-1 small">
+                        <i class="bi bi-patch-check-fill me-1"></i>Verified Applicant
+                    </span>
+                </div>
+
+                <div class="p-3">
+                    <nav class="nav flex-column dashboard-nav">
+                        <a class="nav-link" href="{% url 'applicants:dashboard' %}">
+                            <i class="bi bi-grid-1x2-fill me-2"></i>Dashboard
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:application_new' %}">
+                            <i class="bi bi-file-earmark-plus me-2 text-primary"></i>New Application
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:my_applications' %}">
+                            <i class="bi bi-folder2 me-2"></i>My Applications
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:my_documents' %}">
+                            <i class="bi bi-file-earmark-arrow-up me-2"></i>Documents
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:my_applications' %}" title="View inspections via My Applications">
+                            <i class="bi bi-clipboard2-check me-2"></i>Inspection Details
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:my_deficiencies' %}">
+                            <i class="bi bi-exclamation-triangle me-2"></i>Corrections
+                        </a>
+                        <a class="nav-link" href="{% url 'applicants:my_nocs' %}">
+                            <i class="bi bi-award me-2"></i>My NOCs
+                        </a>
+                        <a class="nav-link active" href="{% url 'applicants:profile' %}">
+                            <i class="bi bi-person-gear me-2"></i>Profile
+                        </a>
+
+                        <hr class="my-2 border-secondary-subtle">
+
+                        <form method="post" action="{% url 'logout' %}" class="m-0 p-0">
+                            {% csrf_token %}
+                            <button type="submit" class="nav-link text-danger w-100 text-start border-0 bg-transparent">
+                                <i class="bi bi-box-arrow-right me-2 text-danger"></i>Logout
+                            </button>
+                        </form>
+                    </nav>
+                </div>
+            </div>
+
+            <!-- Profile Overview Quick Card -->
+            <div class="card border-0 shadow-sm p-3 bg-light">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="bi bi-shield-lock text-primary fs-4 me-2"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Security Note</h6>
+                </div>
+                <p class="small text-muted mb-0">
+                    Your registered email address and system role cannot be changed through the self-service profile page. If your email requires updating, please submit a request to the department helpdesk.
+                </p>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="col-lg-9 col-md-8">
+            <!-- Header Banner -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-body p-4">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div>
+                            <h2 class="h4 fw-bold text-dark mb-1">
+                                <i class="bi bi-person-lines-fill text-danger me-2"></i>Applicant Profile
+                            </h2>
+                            <p class="text-muted mb-0 small">
+                                Manage your personal and contact details used for your Fire NOC applications.
+                            </p>
+                        </div>
+                        <span class="badge bg-light text-dark border px-3 py-2">
+                            <i class="bi bi-calendar3 me-1"></i>Member since {{ user.date_joined|date:"M Y" }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Messages Alert -->
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show shadow-sm" role="alert">
+                        <i class="bi bi-info-circle-fill me-2"></i>{{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            <div class="row g-4">
+                <!-- Profile Form (Left Column) -->
+                <div class="col-lg-8">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-white py-3 border-bottom">
+                            <h5 class="fw-bold mb-0 text-dark">
+                                <i class="bi bi-pencil-square text-danger me-2"></i>Update Personal Details
+                            </h5>
+                        </div>
+                        <div class="card-body p-4">
+                            <form method="post" action="{% url 'applicants:profile' %}">
+                                {% csrf_token %}
+
+                                <div class="row g-3 mb-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-semibold text-dark">First Name <span class="text-danger">*</span></label>
+                                        <input type="text" name="first_name" value="{{ user.first_name }}" class="form-control" required maxlength="150">
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label small fw-semibold text-dark">Last Name</label>
+                                        <input type="text" name="last_name" value="{{ user.last_name }}" class="form-control" maxlength="150">
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-semibold text-dark">Mobile Contact Number <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="bi bi-telephone text-muted"></i></span>
+                                        <input type="tel" name="mobile_number" value="{{ profile.mobile_number }}" class="form-control" required
+                                               placeholder="10-digit mobile number" maxlength="15">
+                                    </div>
+                                    <small class="text-muted">Used for departmental notifications and inspection coordination.</small>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-semibold text-dark">Registered Email Address (Read-only)</label>
+                                    <div class="input-group">
+                                        <span class="input-group-text bg-light"><i class="bi bi-envelope text-muted"></i></span>
+                                        <input type="email" value="{{ user.email }}" class="form-control bg-light" readonly disabled>
+                                    </div>
+                                    <small class="text-muted">Authoritative email associated with your user account.</small>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="form-label small fw-semibold text-dark">Username (Read-only)</label>
+                                    <input type="text" value="{{ user.username }}" class="form-control bg-light" readonly disabled>
+                                </div>
+
+                                <div class="d-flex justify-content-end">
+                                    <button type="submit" class="btn btn-danger px-4 shadow-sm">
+                                        <i class="bi bi-check-circle me-1"></i>Save Profile Changes
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Account Summary Card (Right Column) -->
+                <div class="col-lg-4">
+                    <div class="card border-0 shadow-sm mb-4">
+                        <div class="card-header bg-white py-3 border-bottom">
+                            <h6 class="fw-bold mb-0 text-dark">
+                                <i class="bi bi-person-badge text-primary me-2"></i>Account Overview
+                            </h6>
+                        </div>
+                        <div class="card-body p-3">
+                            <ul class="list-group list-group-flush small">
+                                <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                                    <span class="text-muted">Full Name</span>
+                                    <span class="fw-semibold text-dark">{{ profile.full_name|default:user.username }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                                    <span class="text-muted">Account Role</span>
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle">Applicant</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                                    <span class="text-muted">Total Applications</span>
+                                    <span class="badge bg-secondary">{{ user_applications_count }}</span>
+                                </li>
+                                <li class="list-group-item d-flex justify-content-between align-items-center px-0 py-2">
+                                    <span class="text-muted">Last Updated</span>
+                                    <span class="text-dark">{{ profile.updated_at|date:"d M Y" }}</span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="card border-0 shadow-sm p-3 bg-light text-center">
+                        <i class="bi bi-patch-question text-muted fs-3 mb-2"></i>
+                        <h6 class="fw-bold mb-1 text-dark">Need Help?</h6>
+                        <p class="small text-muted mb-2">Contact the Fire NOC Support Desk for account questions.</p>
+                        <a href="mailto:support-firenoc@gov.in" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-envelope me-1"></i>Email Support
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</div>
+{% endblock %}

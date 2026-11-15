@@ -2606,3 +2606,295 @@ class ApplicantInspectionStatusTimelineTests(TestCase):
         resp_details = self.client.get(self.details_url)
         self.assertEqual(resp_details.status_code, 404)
 
+
+class ApplicantModuleIntegrationTests(TestCase):
+    """
+    Comprehensive verification tests for the finalized Applicant Module:
+    - 7 Dashboard metrics
+    - Deficiency listing, filtering, and rectification submission
+    - Cross-applicant security isolation
+    - NOC certificates listing, HTML certificate view, and PDF download
+    - Applicant Profile viewing and editing with validation
+    """
+
+    def setUp(self):
+        # Create applicants
+        self.applicant_1 = User.objects.create_user(
+            username='ankan_final',
+            email='ankan.final@firenoc.gov.in',
+            password='TestPassword#2026',
+            first_name='Ankan',
+            last_name='Mondal'
+        )
+        self.applicant_2 = User.objects.create_user(
+            username='other_final',
+            email='other.final@firenoc.gov.in',
+            password='TestPassword#2026',
+            first_name='Other',
+            last_name='User'
+        )
+
+        # Create officer
+        self.officer = User.objects.create_user(
+            username='officer_final',
+            email='officer.final@firenoc.gov.in',
+            password='TestPassword#2026',
+            first_name='Aditya',
+            last_name='Officer'
+        )
+
+        # Create applications for applicant 1
+        from applicants.models import Application
+        from officers.models import Inspection, Deficiency, DeficiencyRectification
+        from adminpanel.models import ApplicantProfile
+
+        self.app_pending = Application.objects.create(
+            applicant=self.applicant_1,
+            full_name='Ankan Mondal',
+            email=self.applicant_1.email,
+            mobile_number='9876543210',
+            building_name='Alpha Residency',
+            building_type='RESIDENTIAL',
+            building_address='123 Lake View Road',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700001',
+            num_floors=6,
+            builtup_area=1200.50,
+            year_construction=2021,
+            occupancy_type='RESIDENTIAL',
+            status='PENDING',
+            purpose='Fire NOC clearance for residential apartment',
+        )
+
+        self.app_approved = Application.objects.create(
+            applicant=self.applicant_1,
+            full_name='Ankan Mondal',
+            email=self.applicant_1.email,
+            mobile_number='9876543210',
+            building_name='Beta Complex',
+            building_type='COMMERCIAL',
+            building_address='456 Park Street',
+            city='Kolkata',
+            state='West Bengal',
+            pin_code='700016',
+            num_floors=10,
+            builtup_area=4500.00,
+            year_construction=2020,
+            occupancy_type='BUSINESS',
+            status='APPROVED',
+            purpose='Commercial office NOC clearance',
+        )
+
+        # Create an inspection and deficiency for app_pending
+        self.inspection = Inspection.objects.create(
+            application=self.app_pending,
+            officer=self.officer,
+            scheduled_date=datetime.date.today(),
+            scheduled_time=datetime.time(10, 30),
+            status=Inspection.STATUS_COMPLETED,
+        )
+
+        self.deficiency = Deficiency.objects.create(
+            application=self.app_pending,
+            inspection=self.inspection,
+            reported_by=self.officer,
+            title='Obstructed Fire Exit Stairwell',
+            description='Storage boxes blocking the southern emergency exit stairwell.',
+            severity=Deficiency.SEVERITY_MAJOR,
+            status=Deficiency.STATUS_OPEN,
+            officer_remarks='Clear all boxes immediately and submit photographic proof.',
+        )
+
+        # URLs
+        self.dashboard_url = reverse('applicants:dashboard')
+        self.my_deficiencies_url = reverse('applicants:my_deficiencies')
+        self.app_deficiencies_url = reverse('applicants:application_deficiencies', args=[self.app_pending.pk])
+        self.rectify_url = reverse('applicants:deficiency_rectify_submit', args=[self.deficiency.pk])
+        self.my_nocs_url = reverse('applicants:my_nocs')
+        self.certificate_url = reverse('applicants:noc_certificate', args=[self.app_approved.pk])
+        self.pdf_url = reverse('applicants:noc_certificate_pdf', args=[self.app_approved.pk])
+        self.profile_url = reverse('applicants:profile')
+
+    def test_01_dashboard_7_metrics(self):
+        """Dashboard renders and displays all 7 required metrics accurately."""
+        self.client.force_login(self.applicant_1)
+        response = self.client.get(self.dashboard_url)
+        self.assertEqual(response.status_code, 200)
+
+        stats = response.context['stats']
+        self.assertIn('total_applications', stats)
+        self.assertIn('pending_applications', stats)
+        self.assertIn('under_review_applications', stats)
+        self.assertIn('inspections_scheduled', stats)
+        self.assertIn('deficiencies_attention', stats)
+        self.assertIn('approved_applications', stats)
+        self.assertIn('nocs_issued', stats)
+
+        self.assertEqual(stats['total_applications'], 2)
+        self.assertEqual(stats['pending_applications'], 1)
+        self.assertEqual(stats['approved_applications'], 1)
+        self.assertEqual(stats['deficiencies_attention'], 1)
+
+    def test_02_my_deficiencies_listing_and_filtering(self):
+        """Applicants can view deficiencies, filter by status and severity, and search."""
+        self.client.force_login(self.applicant_1)
+
+        # 2a. Default listing
+        resp = self.client.get(self.my_deficiencies_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Obstructed Fire Exit Stairwell')
+        self.assertContains(resp, f'DEF-{self.deficiency.pk}')
+
+        # 2b. Filter matching
+        resp_filter = self.client.get(self.my_deficiencies_url, {'status': 'OPEN', 'severity': 'MAJOR'})
+        self.assertEqual(resp_filter.status_code, 200)
+        self.assertContains(resp_filter, 'Obstructed Fire Exit Stairwell')
+
+        # 2c. Filter non-matching
+        resp_nomatch = self.client.get(self.my_deficiencies_url, {'status': 'CLOSED'})
+        self.assertEqual(resp_nomatch.status_code, 200)
+        self.assertNotContains(resp_nomatch, 'Obstructed Fire Exit Stairwell')
+
+    def test_03_application_deficiencies_detail(self):
+        """Application-specific deficiencies page loads with deficiency details and form."""
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.app_deficiencies_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Obstructed Fire Exit Stairwell')
+        self.assertContains(resp, 'Clear all boxes immediately')
+        self.assertContains(resp, 'Submit Rectification & Evidence')
+
+    def test_04_deficiency_rectify_submit_success(self):
+        """Submitting rectification details creates DeficiencyRectification and transitions status."""
+        from officers.models import Deficiency, DeficiencyRectification
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.applicant_1)
+        dummy_file = SimpleUploadedFile("evidence.jpg", b"image-content", content_type="image/jpeg")
+
+        data = {
+            'description': 'Removed all storage boxes and installed emergency exit signs.',
+            'evidence_file': dummy_file,
+        }
+        resp = self.client.post(self.rectify_url, data, follow=True)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Rectification submitted successfully')
+
+        # Check DB
+        self.deficiency.refresh_from_db()
+        self.assertEqual(self.deficiency.status, Deficiency.STATUS_SUBMITTED)
+
+        rectification = DeficiencyRectification.objects.filter(deficiency=self.deficiency).first()
+        self.assertIsNotNone(rectification)
+        self.assertEqual(rectification.submitted_by, self.applicant_1)
+        self.assertIn('emergency exit signs', rectification.description)
+
+    def test_05_deficiency_rectify_submit_validation(self):
+        """Validation fails on too short description or forbidden file types."""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        self.client.force_login(self.applicant_1)
+
+        # Too short description
+        resp = self.client.post(self.rectify_url, {'description': 'fixed'}, follow=True)
+        self.assertContains(resp, 'must be at least 10 characters')
+
+        # Disallowed file format
+        bad_file = SimpleUploadedFile("script.sh", b"echo hello", content_type="text/plain")
+        resp_file = self.client.post(self.rectify_url, {
+            'description': 'Valid description of corrective measures performed.',
+            'evidence_file': bad_file
+        }, follow=True)
+        self.assertContains(resp_file, 'Invalid evidence file format')
+
+    def test_06_deficiency_security_isolation(self):
+        """Applicant 2 cannot access Applicant 1's deficiencies or submit corrections."""
+        self.client.force_login(self.applicant_2)
+
+        # Detail view returns 404
+        resp = self.client.get(self.app_deficiencies_url)
+        self.assertEqual(resp.status_code, 404)
+
+        # Rectify submit returns 404
+        resp_post = self.client.post(self.rectify_url, {'description': 'Unauthorized attempt'}, follow=True)
+        self.assertEqual(resp_post.status_code, 404)
+
+        # In my_deficiencies, Applicant 2 sees empty state
+        resp_my = self.client.get(self.my_deficiencies_url)
+        self.assertEqual(resp_my.status_code, 200)
+        self.assertNotContains(resp_my, 'Obstructed Fire Exit Stairwell')
+
+    def test_07_my_nocs_listing(self):
+        """My NOCs lists only approved applications belonging to the user."""
+        self.client.force_login(self.applicant_1)
+        resp = self.client.get(self.my_nocs_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.app_approved.application_id)
+        self.assertContains(resp, 'Beta Complex')
+        # Pending app should NOT appear in My NOCs
+        self.assertNotContains(resp, self.app_pending.application_id)
+
+    def test_08_noc_certificate_view_and_pdf_download(self):
+        """Approved application certificate view and PDF download are accessible and return valid PDF."""
+        self.client.force_login(self.applicant_1)
+
+        # HTML certificate view
+        resp_view = self.client.get(self.certificate_url)
+        self.assertEqual(resp_view.status_code, 200)
+        self.assertContains(resp_view, 'FIRE SAFETY CERTIFICATE')
+        self.assertContains(resp_view, self.app_approved.application_id)
+        self.assertContains(resp_view, 'Beta Complex')
+
+        # PDF download
+        resp_pdf = self.client.get(self.pdf_url)
+        self.assertEqual(resp_pdf.status_code, 200)
+        self.assertEqual(resp_pdf['Content-Type'], 'application/pdf')
+        self.assertIn(f'Fire_NOC_{self.app_approved.application_id}.pdf', resp_pdf['Content-Disposition'])
+        self.assertTrue(resp_pdf.content.startswith(b'%PDF-1.4'))
+
+    def test_09_noc_access_restricted_for_unapproved_or_cross_applicant(self):
+        """Unapproved application or cross-applicant access returns 404."""
+        self.client.force_login(self.applicant_1)
+        # Attempt to access certificate for PENDING app
+        pending_cert_url = reverse('applicants:noc_certificate', args=[self.app_pending.pk])
+        self.assertEqual(self.client.get(pending_cert_url).status_code, 404)
+
+        pending_pdf_url = reverse('applicants:noc_certificate_pdf', args=[self.app_pending.pk])
+        self.assertEqual(self.client.get(pending_pdf_url).status_code, 404)
+
+        # Cross-applicant: applicant 2 trying to access applicant 1's approved NOC
+        self.client.force_login(self.applicant_2)
+        self.assertEqual(self.client.get(self.certificate_url).status_code, 404)
+        self.assertEqual(self.client.get(self.pdf_url).status_code, 404)
+
+    def test_10_profile_view_and_update(self):
+        """Applicant can view profile and update allowed contact fields, with validation."""
+        from adminpanel.models import ApplicantProfile
+
+        self.client.force_login(self.applicant_1)
+
+        # GET profile
+        resp = self.client.get(self.profile_url)
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Ankan')
+        self.assertContains(resp, self.applicant_1.email)
+
+        # POST update allowed fields
+        update_data = {
+            'first_name': 'Ankan Kumar',
+            'last_name': 'Mondal',
+            'mobile_number': '9876500000',
+        }
+        resp_post = self.client.post(self.profile_url, update_data, follow=True)
+        self.assertEqual(resp_post.status_code, 200)
+        self.assertContains(resp_post, 'profile has been updated successfully')
+
+        self.applicant_1.refresh_from_db()
+        self.assertEqual(self.applicant_1.first_name, 'Ankan Kumar')
+
+        profile = ApplicantProfile.objects.get(user=self.applicant_1)
+        self.assertEqual(profile.mobile_number, '9876500000')
+        self.assertEqual(profile.full_name, 'Ankan Kumar Mondal')
+
+
