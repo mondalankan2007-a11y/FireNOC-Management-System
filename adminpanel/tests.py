@@ -14,7 +14,7 @@ from officers.models import Deficiency, Inspection, OfficerProfile
 from applicants.models import Application
 
 from . import queries
-from .models import ApplicantProfile, AuditLog, Building, PinCode
+from .models import NOC, ApplicantProfile, AuditLog, Building, PinCode
 from .signals import _sync_building
 
 
@@ -1499,3 +1499,207 @@ class OfficerActivationTests(TestCase):
 
         response = self.client.get(self.detail_url)
         self.assertContains(response, 'will need reassigning')
+
+
+def issue_noc(application, **overrides):
+    """A certificate for an application, with sensible defaults."""
+    issued = overrides.pop('issued_at', timezone.now())
+    valid_from = overrides.pop('valid_from', issued.date())
+    years = NOC.validity_years_for(application.occupancy_type)
+    values = dict(
+        application=application,
+        noc_number=NOC.next_number(issued.year),
+        issued_at=issued,
+        valid_from=valid_from,
+        valid_until=valid_from.replace(year=valid_from.year + years),
+    )
+    values.update(overrides)
+    return NOC.objects.create(**values)
+
+
+class NOCNumberingTests(TestCase):
+    """The certificate number series, which is separate from the application's."""
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('nocuser', 'n@example.com', 'pw')
+        self.application = make_application(self.applicant)
+
+    def test_first_number_of_a_year(self):
+        self.assertEqual(NOC.next_number(2026), 'FN/2026/00001')
+
+    def test_numbers_increment(self):
+        issue_noc(self.application, noc_number='FN/2026/00001',
+                  issued_at=timezone.now())
+
+        self.assertEqual(NOC.next_number(2026), 'FN/2026/00002')
+
+    def test_series_restarts_each_year(self):
+        issue_noc(self.application, noc_number='FN/2026/00007')
+
+        self.assertEqual(NOC.next_number(2027), 'FN/2027/00001')
+        self.assertEqual(NOC.next_number(2026), 'FN/2026/00008')
+
+    def test_number_is_padded_so_it_sorts_correctly(self):
+        issue_noc(self.application, noc_number='FN/2026/00009')
+
+        self.assertEqual(NOC.next_number(2026), 'FN/2026/00010')
+
+    def test_certificate_number_is_not_the_application_number(self):
+        noc = issue_noc(self.application)
+
+        self.assertNotEqual(noc.noc_number, self.application.application_id)
+        self.assertTrue(noc.noc_number.startswith('FN/'))
+
+    def test_numbers_are_unique_in_the_database(self):
+        issue_noc(self.application, noc_number='FN/2026/00001')
+        second = make_application(self.applicant, building_address='77 Station Road')
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                issue_noc(second, noc_number='FN/2026/00001')
+
+
+class NOCValidityTests(TestCase):
+    """Validity periods, stored rather than derived."""
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('nocuser2', 'n2@example.com', 'pw')
+
+    def test_residential_buildings_get_three_years(self):
+        self.assertEqual(NOC.validity_years_for('RESIDENTIAL'), 3)
+
+    def test_other_occupancies_get_one_year(self):
+        for occupancy in ('BUSINESS', 'ASSEMBLY', 'INDUSTRIAL', 'HEALTHCARE'):
+            self.assertEqual(NOC.validity_years_for(occupancy), 1, occupancy)
+
+    def test_an_active_in_date_certificate_is_valid(self):
+        noc = issue_noc(make_application(self.applicant))
+
+        self.assertTrue(noc.is_currently_valid)
+        self.assertFalse(noc.is_expired)
+
+    def test_a_past_end_date_makes_it_expired_even_while_marked_active(self):
+        application = make_application(self.applicant)
+        noc = issue_noc(
+            application,
+            valid_from=date(2020, 1, 1),
+            valid_until=date(2021, 1, 1))
+
+        self.assertEqual(noc.status, NOC.STATUS_ACTIVE)
+        self.assertTrue(noc.is_expired, 'the calendar passing is what expires it')
+        self.assertFalse(noc.is_currently_valid)
+
+    def test_a_revoked_certificate_is_not_valid_even_while_in_date(self):
+        noc = issue_noc(make_application(self.applicant),
+                        status=NOC.STATUS_REVOKED)
+
+        self.assertFalse(noc.is_expired)
+        self.assertFalse(noc.is_currently_valid)
+
+    def test_dates_do_not_move_when_the_application_is_edited(self):
+        application = make_application(self.applicant)
+        noc = issue_noc(application)
+        issued, until = noc.issued_at, noc.valid_until
+
+        application.remarks = 'Edited long after issue'
+        application.save()
+
+        noc.refresh_from_db()
+        self.assertEqual(noc.issued_at, issued)
+        self.assertEqual(noc.valid_until, until)
+
+    def test_days_until_expiry(self):
+        today = timezone.localdate()
+        noc = issue_noc(make_application(self.applicant),
+                        valid_from=today, valid_until=today + timedelta(days=30))
+
+        self.assertEqual(noc.days_until_expiry, 30)
+
+    def test_database_rejects_an_end_date_before_the_start(self):
+        application = make_application(self.applicant)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                issue_noc(application, valid_from=date(2026, 6, 1),
+                          valid_until=date(2026, 1, 1))
+
+
+class NOCUniquenessTests(TestCase):
+    """One live certificate per application, with revoked ones retained."""
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('nocuser3', 'n3@example.com', 'pw')
+        self.application = make_application(self.applicant)
+
+    def test_one_application_cannot_hold_two_active_certificates(self):
+        issue_noc(self.application)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                issue_noc(self.application)
+
+    def test_a_revoked_certificate_does_not_block_reissuing(self):
+        revoked = issue_noc(self.application, status=NOC.STATUS_REVOKED)
+
+        replacement = issue_noc(self.application)
+
+        self.assertEqual(NOC.objects.filter(application=self.application).count(), 2)
+        self.assertEqual(replacement.status, NOC.STATUS_ACTIVE)
+        self.assertEqual(revoked.status, NOC.STATUS_REVOKED)
+
+    def test_an_expired_certificate_still_blocks_a_second_live_one(self):
+        # Expiry is not withdrawal: the certificate remains the one that was
+        # issued for that application, so reissuing needs renewal, not a
+        # second row.
+        issue_noc(self.application, status=NOC.STATUS_EXPIRED)
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                issue_noc(self.application)
+
+    def test_database_rejects_an_unknown_status(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                issue_noc(self.application, status='CANCELLED')
+
+
+class NOCIntegrationContractTests(TestCase):
+    """
+    The applicant module contains a runtime hook that looks for a model named
+    NOC carrying an `application` field, and reads `noc_number` and
+    `issued_at` off it. These tests pin that contract, because breaking it
+    fails silently: the timeline stage simply stops appearing.
+    """
+
+    def setUp(self):
+        self.applicant = User.objects.create_user('nocuser4', 'n4@example.com', 'pw')
+        self.application = make_application(self.applicant)
+
+    def test_model_exposes_the_names_the_applicant_module_looks_for(self):
+        field_names = [f.name for f in NOC._meta.get_fields()]
+
+        self.assertEqual(NOC.__name__.lower(), 'noc')
+        self.assertIn('application', field_names)
+        self.assertIn('noc_number', field_names)
+        self.assertIn('issued_at', field_names)
+
+    def test_the_applicant_timeline_finds_the_certificate(self):
+        noc = issue_noc(self.application)
+        self.client.force_login(self.applicant)
+
+        response = self.client.get(
+            reverse('applicants:application_timeline',
+                    args=[self.application.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, noc.noc_number)
+
+    def test_the_timeline_has_no_issued_stage_without_a_certificate(self):
+        self.client.force_login(self.applicant)
+
+        response = self.client.get(
+            reverse('applicants:application_timeline',
+                    args=[self.application.pk]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'FN/')
