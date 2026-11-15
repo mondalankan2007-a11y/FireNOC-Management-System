@@ -7,7 +7,11 @@ its own.
 """
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.db.models import Count, Max, Q
+from django.utils import timezone
+
+from .models import AuditLog
 
 APPLICANT_SORTS = {
     'name': 'first_name',
@@ -60,3 +64,70 @@ def applicants(search='', status='', sort=DEFAULT_APPLICANT_SORT):
     # A secondary key keeps paging stable when the primary key ties, which it
     # does constantly here: most applicants have the same application count.
     return queryset.order_by(order, 'pk')
+
+
+def applicant_applications(user):
+    """
+    Every application this person has filed, newest first.
+
+    Read through v_application_overview rather than reassembling the same
+    joins here, so the admin detail page and the dashboard agree on what "the
+    latest inspection" and "open deficiencies" mean for an application.
+
+    Falls back to the ORM where the view does not exist, on SQLite.
+    """
+    if connection.vendor != 'postgresql':
+        return [
+            {
+                'reference': a.application_id,
+                'status': a.status,
+                'application_type': a.application_type,
+                'building_name': a.building_name,
+                'city': a.city,
+                'created_at': a.created_at,
+                'age_in_days': (timezone.now() - a.created_at).days,
+                'last_inspection_date': None,
+                'last_inspection_status': None,
+                'last_inspection_result': None,
+                'deficiency_count': a.deficiencies.count(),
+                'open_deficiency_count': a.deficiencies.filter(status='OPEN').count(),
+            }
+            for a in user.fire_noc_applications.order_by('-created_at')
+        ]
+
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            select reference, status, application_type, building_name, city,
+                   created_at, age_in_days, last_inspection_date,
+                   last_inspection_status, last_inspection_result,
+                   deficiency_count, open_deficiency_count
+              from v_application_overview
+             where applicant_username = %s
+             order by created_at desc
+        """, [user.username])
+        columns = [c[0] for c in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+
+def applicant_activity(user, limit=20):
+    """
+    Audit entries concerning this applicant.
+
+    Two things count as "concerning" them: entries where they were the actor,
+    and entries about one of their applications. The second matters more — an
+    officer rejecting their application is the kind of event an administrator
+    looks for on this page, and the applicant did not perform it.
+    """
+    references = set(
+        user.fire_noc_applications.values_list('application_id', flat=True))
+    application_ids = set(
+        user.fire_noc_applications.values_list('id', flat=True))
+
+    criteria = Q(actor=user)
+    if application_ids:
+        criteria |= Q(entity_type=AuditLog.ENTITY_APPLICATION,
+                      entity_id__in=application_ids)
+    if references:
+        criteria |= Q(entity_label__in=references)
+
+    return list(AuditLog.objects.select_related('actor').filter(criteria)[:limit])

@@ -6,7 +6,8 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.paginator import Paginator
 from django.utils.http import urlencode
-from django.shortcuts import redirect, render
+from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 from . import queries, statistics
@@ -210,6 +211,40 @@ def applicant_list(request):
             {k: v for k, v in (('q', search), ('status', status), ('sort', sort)) if v}),
     }
     return render(request, 'adminpanel/applicant_list.html', context)
+
+
+@admin_required
+def applicant_detail(request, user_id):
+    """
+    One applicant: their contact record, every application they have filed,
+    and the audit entries concerning them.
+    """
+    applicant = get_object_or_404(
+        User.objects.select_related('applicant_profile'), pk=user_id)
+
+    if hasattr(applicant, 'officer_profile') or applicant.is_staff:
+        messages.error(
+            request, 'That account is not an applicant.')
+        return redirect('adminpanel:applicant_list')
+
+    applications = queries.applicant_applications(applicant)
+
+    context = {
+        'applicant': applicant,
+        'profile': getattr(applicant, 'applicant_profile', None),
+        'applications': applications,
+        'activity': queries.applicant_activity(applicant),
+        'summary': {
+            'total': len(applications),
+            'open_deficiencies': sum(
+                a['open_deficiency_count'] or 0 for a in applications),
+            'issued': sum(1 for a in applications if a['status'] == 'NOC_ISSUED'),
+            'in_progress': sum(
+                1 for a in applications
+                if a['status'] not in ('NOC_ISSUED', 'REJECTED')),
+        },
+    }
+    return render(request, 'adminpanel/applicant_detail.html', context)
 
 
 @admin_required

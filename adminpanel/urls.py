@@ -14,6 +14,7 @@ urlpatterns = [
 
     # Applicant management
     path('applicants/', views.applicant_list, name='applicant_list'),
+    path('applicants/<int:user_id>/', views.applicant_detail, name='applicant_detail'),
 
     # Admin Module landing page
     path('', views.admin_home, name='admin_home'),

@@ -83,7 +83,10 @@
                     <tr>
                         <td>
                             <div class="fw-semibold">
-                                {{ applicant.get_full_name|default:applicant.username }}
+                                <a href="{% url 'adminpanel:applicant_detail' applicant.pk %}"
+                                   class="text-decoration-none">
+                                    {{ applicant.get_full_name|default:applicant.username }}
+                                </a>
                             </div>
                             <div class="small text-muted">{{ applicant.username }}</div>
                         </td>

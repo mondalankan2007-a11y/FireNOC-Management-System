@@ -1153,3 +1153,111 @@ class ApplicantListTests(TestCase):
         make_application(self.alice, building_address='9 Third Road')
 
         self.assertEqual(self._listed(q='alice'), ['alice'])
+
+
+class ApplicantDetailTests(TestCase):
+    """The applicant detail page: record, history and activity."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            'deptadmin8', 'admin8@example.com', 'pw', is_staff=True)
+        self.applicant = User.objects.create_user(
+            'carol', 'carol@example.com', 'pw', first_name='Carol', last_name='Mehta')
+        self.client.force_login(self.admin)
+        self.url = reverse('adminpanel:applicant_detail', args=[self.applicant.pk])
+
+    def test_requires_an_administrator(self):
+        self.client.logout()
+        self.assertRedirects(self.client.get(self.url),
+                             f'{reverse("adminpanel:login")}?next={self.url}')
+
+    def test_unknown_applicant_returns_404(self):
+        url = reverse('adminpanel:applicant_detail', args=[999999])
+        self.assertEqual(self.client.get(url).status_code, 404)
+
+    def test_officer_account_is_refused(self):
+        officer = User.objects.create_user('officer12', 'o12@example.com', 'pw')
+        OfficerProfile.objects.create(
+            user=officer, officer_id='FO-012', designation='Inspector')
+
+        response = self.client.get(
+            reverse('adminpanel:applicant_detail', args=[officer.pk]))
+        self.assertRedirects(response, reverse('adminpanel:applicant_list'))
+
+    def test_applicant_with_no_applications_renders(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['applications'], [])
+        self.assertEqual(response.context['summary']['total'], 0)
+
+    def test_application_history_is_listed_newest_first(self):
+        make_application(self.applicant, building_name='First Tower')
+        make_application(self.applicant, building_address='77 Station Road',
+                         building_name='Second Tower')
+
+        history = self.client.get(self.url).context['applications']
+        self.assertEqual([a['building_name'] for a in history],
+                         ['Second Tower', 'First Tower'])
+
+    def test_summary_counts_reflect_the_history(self):
+        make_application(self.applicant)
+        make_application(self.applicant, building_address='77 Station Road',
+                         status='NOC_ISSUED')
+        make_application(self.applicant, building_address='9 Third Road',
+                         status='REJECTED')
+
+        summary = self.client.get(self.url).context['summary']
+        self.assertEqual(summary['total'], 3)
+        self.assertEqual(summary['issued'], 1)
+        self.assertEqual(summary['in_progress'], 1)
+
+    def test_open_deficiencies_are_counted_across_applications(self):
+        application = make_application(self.applicant)
+        inspection = Inspection.objects.create(
+            application=application, scheduled_date=date(2026, 12, 1),
+            scheduled_time=time(10, 0), status='COMPLETED')
+        Deficiency.objects.create(
+            application=application, inspection=inspection, title='Blocked exit',
+            description='x', severity='MAJOR', status='OPEN')
+
+        summary = self.client.get(self.url).context['summary']
+        self.assertEqual(summary['open_deficiencies'], 1)
+
+    def test_profile_details_are_shown_when_present(self):
+        make_application(self.applicant, mobile_number='9876543210')
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['profile'].mobile_number, '9876543210')
+
+    def test_missing_profile_is_reported_rather_than_hidden(self):
+        response = self.client.get(self.url)
+
+        self.assertIsNone(response.context['profile'])
+        self.assertContains(response, 'No normalized applicant record')
+
+    def test_activity_includes_actions_taken_by_others_on_their_application(self):
+        application = make_application(self.applicant)
+        officer = User.objects.create_user('officer13', 'o13@example.com', 'pw')
+        AuditLog.objects.all().delete()
+        AuditLog.record(AuditLog.ACTION_REJECT, AuditLog.ENTITY_APPLICATION,
+                        actor=officer, entity=application,
+                        summary='Rejected after inspection')
+
+        activity = self.client.get(self.url).context['activity']
+        self.assertEqual(len(activity), 1)
+        self.assertEqual(activity[0].actor, officer)
+
+    def test_activity_excludes_other_applicants_entries(self):
+        other = User.objects.create_user('dave', 'dave@example.com', 'pw')
+        make_application(self.applicant)
+        AuditLog.objects.all().delete()
+        AuditLog.record(AuditLog.ACTION_CREATE, AuditLog.ENTITY_APPLICATION,
+                        actor=other, entity_id=99999, summary='someone else')
+
+        self.assertEqual(self.client.get(self.url).context['activity'], [])
+
+    def test_listing_links_to_the_detail_page(self):
+        response = self.client.get(reverse('adminpanel:applicant_list'))
+
+        self.assertContains(response, f'/admin-panel/applicants/{self.applicant.pk}/')
